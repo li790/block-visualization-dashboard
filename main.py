@@ -57,7 +57,6 @@ def main():
                             except Exception as e:
                                 st.error(f"删除 {filename} 失败: {e}")
                     if deleted_count > 0:
-                        st.success(f"成功删除 {deleted_count} 个文件")
                         st.session_state.main_selected_files = []
                         st.rerun()
                 else:
@@ -99,7 +98,6 @@ def main():
                 if st.button("删除", key=f"main_del_{i}"):
                     try:
                         file.unlink()
-                        st.success(f"已删除 {file.name}")
                         if file.name in st.session_state.main_selected_files:
                             st.session_state.main_selected_files.remove(file.name)
                         st.rerun()
@@ -122,7 +120,6 @@ def main():
                         old_path = DATA_DIR / st.session_state.main_renaming_file
                         new_path = DATA_DIR / new_name
                         old_path.rename(new_path)
-                        st.success(f"已重命名 {st.session_state.main_renaming_file} -> {new_name}")
                         if st.session_state.main_renaming_file in st.session_state.main_selected_files:
                             st.session_state.main_selected_files.remove(st.session_state.main_renaming_file)
                             st.session_state.main_selected_files.append(new_name)
@@ -138,7 +135,7 @@ def main():
     # ====== 文件管理主页面实现 END ======
 
     # 渲染侧边栏并获取文件
-    all_uploaded_files, extracted_files, selected_files, uploaded_main_dfs, uploaded_tertiary_dfs = render_sidebar(DATA_DIR)
+    all_uploaded_files, extracted_files, selected_files, uploaded_main_dfs, uploaded_tertiary_dfs, include_self_owned_labor = render_sidebar(DATA_DIR)
     
     # 月份选择
     month = st.slider("选择月份:", min_value=1, max_value=12, value=5)  # 默认5月
@@ -160,12 +157,12 @@ def main():
             try:
                 # 处理原始Excel文件
                 file_path = DATA_DIR / filename
-                main_df, tertiary_df = extract_table_from_excel(file_path)
+                main_df, tertiary_df = extract_table_from_excel(file_path, include_self_owned_labor)
                 if main_df is not None and tertiary_df is not None:
                     project_name = filename.replace('.xlsx', '')
                     all_main_dfs[project_name] = main_df
                     all_tertiary_dfs[project_name] = tertiary_df
-                    st.success(f"成功处理文件: {filename}")
+
                 else:
                     st.warning(f"无法从文件 {filename} 中提取有效数据")
             except Exception as e:
@@ -197,6 +194,10 @@ def main():
             st.write(f"**分析结果:** 成功处理 {total_projects} 个选中的项目")
         else:
             st.write(f"**分析结果:** 成功处理 {total_projects} 个项目")
+        
+        # 如果有多项目，显示汇总表信息
+        if total_projects > 1:
+            st.info(f"📊 已生成 {total_projects} 个项目的汇总表，所有数据已合并计算")
     else:
         st.warning("没有可分析的文件")
     

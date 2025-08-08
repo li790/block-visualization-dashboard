@@ -694,7 +694,7 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
     
     # 添加人工服务拆分表格展示 - 移到这里
     st.markdown("---")
-    st.subheader("人工服务拆分汇总数据")
+    st.subheader("人工服务拆分数据")
     
     # 获取所有项目文件
     from pathlib import Path
@@ -707,11 +707,11 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
         
         if labor_summary is not None:
             # 显示汇总信息
-            st.markdown("#### 人工服务拆分汇总表")
+
             st.info(f"已生成 {len(all_files)} 个项目的汇总表，所有数据已合并计算")
             
             # 创建人工服务拆分图表
-            st.markdown("#### 📊 人工服务拆分图表分析")
+            st.markdown("#### 人工服务拆分数据图表分析")
             
             # 找到三个汇总费项
             summary_items = {}
@@ -1076,10 +1076,7 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month):
     # 显示表格预览
     st.markdown("#### 项目数据表格预览")
     st.dataframe(client_table, use_container_width=True)
-    
-    # 提供下载按钮
-    st.markdown("#### 📥 下载数据")
-    
+       
     # 转换为Excel格式
     output = pd.ExcelWriter('temp_client_data.xlsx', engine='openpyxl')
     client_table.to_excel(output, sheet_name='客户数据', index=False)

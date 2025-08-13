@@ -3,6 +3,7 @@ from pathlib import Path
 import os
 import tempfile
 from utils.data_processor import get_excel_files, extract_table_from_excel
+from utils.cache_manager import get_cache_manager
 
 # 自定义CSS样式美化文件上传区域
 def inject_custom_css():
@@ -146,6 +147,12 @@ def render_sidebar(data_dir):
             st.info("📋 当前选择：不包含自有人工成本的主要费项表格")
         
         st.divider()
+        
+        # 缓存状态显示
+        cache_manager = get_cache_manager()
+        cache_stats = cache_manager.get_cache_stats()
+        if 'error' not in cache_stats and cache_stats['cache_count'] > 0:
+            st.info(f"⚡ 缓存状态: {cache_stats['cache_count']} 个文件已缓存 ({cache_stats['total_size_mb']}MB)")
         
         # 选择现有文件
         existing_files = get_excel_files(data_dir)

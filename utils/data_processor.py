@@ -5,12 +5,14 @@ from pathlib import Path
 import os
 from io import BytesIO
 import time
+import hashlib
+from utils.cache_manager import get_cache_manager
 
 def extract_table_from_excel(file, include_self_owned_labor=False):
     """从Excel文件中提取工作表的数据:
     1. 主要费项费项月累成本使用情况(前39行) - 根据include_self_owned_labor参数选择4或4-1开头的工作表
     2. 三级费项月累表格(前153行)
-    支持文件路径或文件对象
+    支持文件路径或文件对象，支持缓存功能
     
     Args:
         file: Excel文件路径或文件对象
@@ -18,6 +20,16 @@ def extract_table_from_excel(file, include_self_owned_labor=False):
             - True: 使用"4主要费项费项月累成本使用情况" (包含自有人工成本)
             - False: 使用"4-1主要费项费项月累成本使用情况" (不包含自有人工成本)
     """
+    # 获取缓存管理器
+    cache_manager = get_cache_manager()
+    
+    # 如果是文件路径，先尝试从缓存获取
+    if isinstance(file, str) or isinstance(file, Path):
+        file_path = str(file)
+        cached_data = cache_manager.get_cached_data(file_path, include_self_owned_labor)
+        if cached_data:
+            return cached_data
+    
     try:
         # 支持文件路径或文件对象
         if isinstance(file, str) or isinstance(file, Path):
@@ -107,6 +119,11 @@ def extract_table_from_excel(file, include_self_owned_labor=False):
             st.error(f"文件中实际存在的工作表: {', '.join(xl.sheet_names)}")
             return None, None
         
+        # 如果是文件路径，保存到缓存
+        if isinstance(file, str) or isinstance(file, Path):
+            file_path = str(file)
+            cache_manager.save_cached_data(file_path, include_self_owned_labor, main_df, tertiary_df)
+        
         return main_df, tertiary_df
     except Exception as e:
         st.error(f"处理文件时出错: {str(e)}")
@@ -169,10 +186,17 @@ def 补全费项类别(fee_code):
     """根据费项编码补全类别名称"""
     return FEE_CATEGORY_MAP.get(fee_code, '未知类别')
 
-def process_excel_data(df, month):
-    """处理Excel数据 - 适配用户表格格式"""
+def process_excel_data(df, month, project_name=None, include_self_owned_labor=False):
+    """处理Excel数据 - 适配用户表格格式，支持缓存"""
     # 确保month是整数类型
     month = int(month) if isinstance(month, str) else month
+    
+    # 尝试从缓存获取
+    if project_name:
+        cache_manager = get_cache_manager()
+        cached_data = cache_manager.get_project_analysis_cache(project_name, month, include_self_owned_labor)
+        if cached_data:
+            return cached_data
     
     try:
         # 查找关键行
@@ -327,7 +351,7 @@ def process_excel_data(df, month):
                             'year_target': float(year_target_item)
                         })
         
-        return {
+        result = {
             'total_target': float(total_target_data.sum()),
             'cum_target': [float(x) for x in cum_target],
             'cum_actual': [float(x) for x in cum_actual],
@@ -339,6 +363,13 @@ def process_excel_data(df, month):
             'fee_items': processed_fee_items,
             'exceptions': exceptions
         }
+        
+        # 保存到缓存
+        if project_name:
+            cache_manager = get_cache_manager()
+            cache_manager.save_project_analysis_cache(project_name, month, result, include_self_owned_labor)
+        
+        return result
         
     except Exception as e:
         st.error(f"处理Excel文件时出错: {e}")
@@ -523,10 +554,17 @@ def create_summary_excel(all_dfs):
     
     return summary_df
 
-def process_tertiary_fee_data(df, month):
-    """处理三级费项数据并检测异常"""
+def process_tertiary_fee_data(df, month, project_name=None, include_self_owned_labor=False):
+    """处理三级费项数据并检测异常，支持缓存"""
     # 确保month是整数类型
     month = int(month) if isinstance(month, str) else month
+    
+    # 尝试从缓存获取
+    if project_name:
+        cache_manager = get_cache_manager()
+        cached_data = cache_manager.get_anomaly_cache(project_name, month, include_self_owned_labor)
+        if cached_data:
+            return cached_data
     
     try:
         tertiary_fee_items = []
@@ -683,18 +721,32 @@ def process_tertiary_fee_data(df, month):
                 continue
         
         # 添加异常信息到返回结果
-        return {
+        result = {
             'tertiary_fee_items': tertiary_fee_items,
             'exceptions': exceptions
         }
+        
+        # 保存到缓存
+        if project_name:
+            cache_manager = get_cache_manager()
+            cache_manager.save_anomaly_cache(project_name, month, result, include_self_owned_labor)
+        
+        return result
     except Exception as e:
         st.error(f"处理三级费项数据时出错: {e}")
         return {'tertiary_fee_items': [], 'exceptions': []}
 
-def merge_project_data(all_data, all_main_dfs, month):
-    """合并多个项目的数据并计算合并后的关键指标"""
+def merge_project_data(all_data, all_main_dfs, month, include_self_owned_labor=False):
+    """合并多个项目的数据并计算合并后的关键指标，支持缓存"""
     if not all_data or not all_main_dfs:
         return None
+    
+    # 尝试从缓存获取
+    cache_manager = get_cache_manager()
+    project_hash = hashlib.md5(str(sorted(all_data.keys())).encode()).hexdigest()
+    cached_data = cache_manager.get_project_analysis_cache(f"merged_{project_hash}", month, include_self_owned_labor)
+    if cached_data:
+        return cached_data
     
     # 先合并原始Excel数据
     merged_df = create_summary_excel(all_main_dfs)
@@ -702,11 +754,14 @@ def merge_project_data(all_data, all_main_dfs, month):
         return None
     
     # 使用合并后的原始数据重新计算关键指标
-    merged_data = process_excel_data(merged_df, month)
+    merged_data = process_excel_data(merged_df, month, f"merged_{project_hash}", include_self_owned_labor)
     
     if merged_data:
         # 添加项目列表信息
         merged_data['merged_projects'] = list(all_data.keys())
+        
+        # 保存到缓存
+        cache_manager.save_project_analysis_cache(f"merged_{project_hash}", month, merged_data, include_self_owned_labor)
     
     return merged_data 
 
@@ -915,15 +970,28 @@ def create_client_download_table(all_dfs, all_data):
     
     return result_df
 
-def create_secondary_fee_overall_data(all_main_dfs):
-    """创建二级费项整体数据，用于组合图表展示
+def create_secondary_fee_overall_data(all_main_dfs, month=None, include_self_owned_labor=False):
+    """创建二级费项整体数据，用于组合图表展示，支持缓存
     
     Args:
         all_main_dfs: 所有项目的主要费项数据字典
+        month: 月份，用于缓存键
+        include_self_owned_labor: 是否包含自有人工成本
         
     Returns:
         list: 包含各二级费项整体数据的列表
     """
+    # 尝试从缓存获取
+    if month is not None:
+        cache_manager = get_cache_manager()
+        # 使用项目名称的哈希作为缓存键
+        project_hash = hashlib.md5(str(sorted(all_main_dfs.keys())).encode()).hexdigest()
+        cached_data = cache_manager.get_secondary_fee_cache(f"combined_{project_hash}", month, include_self_owned_labor)
+        if cached_data is not None:
+            print(f"二级费项数据从缓存加载成功，项目哈希: {project_hash}, 月份: {month}")
+            return cached_data
+        else:
+            print(f"未找到二级费项缓存，项目哈希: {project_hash}, 月份: {month}")
     secondary_fee_data = {}
 
     import re
@@ -1082,6 +1150,12 @@ def create_secondary_fee_overall_data(all_main_dfs):
         
         if fee_name == "物耗成本":
             print(f"最终物耗成本数据 - target: {data['target']}, actual: {data['actual']}")
+    
+    # 保存到缓存
+    if month is not None:
+        cache_manager = get_cache_manager()
+        project_hash = hashlib.md5(str(sorted(all_main_dfs.keys())).encode()).hexdigest()
+        cache_manager.save_secondary_fee_cache(f"combined_{project_hash}", month, result, include_self_owned_labor)
     
     return result
 

@@ -27,7 +27,7 @@ from utils.chart_creator import (
 
 from utils.data_processor import create_summary_excel, merge_project_data, create_client_download_table, create_monthly_fee_summary, create_secondary_fee_overall_data, extract_labor_service_breakdown, create_labor_service_summary
 
-def render_kpi_metrics(all_data, all_dfs, month):
+def render_kpi_metrics(all_data, all_dfs, month, include_self_owned_labor):
     """渲染KPI指标 - 苹果风格卡片设计"""
     # 确保month是整数类型
     month = int(month) if isinstance(month, str) else month
@@ -37,7 +37,7 @@ def render_kpi_metrics(all_data, all_dfs, month):
         pass
     else:
         # 多项目模式：显示合并后的关键指标
-        merged_data = merge_project_data(all_data, all_dfs, month)
+        merged_data = merge_project_data(all_data, all_dfs, month, include_self_owned_labor)
         if merged_data:
             st.markdown("### 多项目合并指标")
             
@@ -523,7 +523,7 @@ def render_anomaly_section(anomalies, project_name=None, all_data=None, month=No
             else:
                 st.info("暂无三级费项异常数据")
 
-def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, month):
+def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor):
     """渲染多项目对比分析"""
     # 确保month是整数类型
     month = int(month) if isinstance(month, str) else month
@@ -617,7 +617,7 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
     st.subheader("二级费项整体分析")
     
     # 获取二级费项整体数据
-    secondary_fee_data = create_secondary_fee_overall_data(all_main_dfs)
+    secondary_fee_data = create_secondary_fee_overall_data(all_main_dfs, month, include_self_owned_labor)
     
     if secondary_fee_data:
         # 创建费项选择下拉框
@@ -694,7 +694,7 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
     
     # 添加人工服务拆分表格展示 - 移到这里
     st.markdown("---")
-    st.subheader("人工服务拆分数据")
+    st.subheader("人工服务拆分汇总数据")
     
     # 获取所有项目文件
     from pathlib import Path
@@ -707,16 +707,17 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
         
         if labor_summary is not None:
             # 显示汇总信息
-
+            st.markdown("#### 人工服务拆分汇总表")
             st.info(f"已生成 {len(all_files)} 个项目的汇总表，所有数据已合并计算")
             
             # 创建人工服务拆分图表
-            st.markdown("#### 人工服务拆分数据图表分析")
+            st.markdown("#### 📊 人工服务拆分图表分析")
             
             # 找到三个汇总费项
             summary_items = {}
             for idx, row in labor_summary.iterrows():
                 fee_name = str(row.iloc[0]).strip()  # 第一列是费项名称
+                data_type = str(row.iloc[1]).strip()  # 第二列是数据类型
                 
                 # 提取数值数据（1-12月）
                 monthly_data = []
@@ -728,25 +729,37 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
                     else:
                         monthly_data.append(0.0)
                 
-                # 根据费项名称分类
+                # 根据费项名称和数据类型分类
+                item_key = None
                 if "自有人员汇总" in fee_name:
-                    summary_items['自有人员汇总'] = {
-                        'name': fee_name,
-                        'data': monthly_data,
-                        'color': '#ff7f0e'  # 橙色
-                    }
+                    item_key = '自有人员汇总'
+                    base_color = '#ff7f0e'  # 橙色
                 elif "专业外包汇总" in fee_name:
-                    summary_items['专业外包汇总'] = {
-                        'name': fee_name,
-                        'data': monthly_data,
-                        'color': '#2ca02c'  # 绿色
-                    }
+                    item_key = '专业外包汇总'
+                    base_color = '#2ca02c'  # 绿色
                 elif "劳务派遣汇总" in fee_name:
-                    summary_items['劳务派遣汇总'] = {
-                        'name': fee_name,
-                        'data': monthly_data,
-                        'color': '#1f77b4'  # 蓝色
-                    }
+                    item_key = '劳务派遣汇总'
+                    base_color = '#1f77b4'  # 蓝色
+                
+                if item_key:
+                    # 初始化费项数据结构
+                    if item_key not in summary_items:
+                        summary_items[item_key] = {
+                            'name': fee_name,
+                            'actual': [0.0] * 12,  # 已发生金额
+                            'target': [0.0] * 12,  # 目标金额
+                            'color': base_color
+                        }
+                    
+                    # 根据数据类型分配数据
+                    if "已发生金额" in data_type:
+                        # 累加已发生金额数据
+                        for i in range(len(monthly_data)):
+                            summary_items[item_key]['actual'][i] += monthly_data[i]
+                    elif "目标金额" in data_type:
+                        # 累加目标金额数据
+                        for i in range(len(monthly_data)):
+                            summary_items[item_key]['target'][i] += monthly_data[i]
             
             if summary_items:
                 # 创建组合图表
@@ -763,7 +776,7 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
                     fig.add_trace(go.Bar(
                         name=f"{item_data['name']} - 已发生金额",
                         x=months,
-                        y=item_data['data'],
+                        y=item_data['actual'],
                         marker_color=color,
                         opacity=0.8,
                         hovertemplate='<b>%{x}</b><br>' +
@@ -776,7 +789,7 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
                     fig.add_trace(go.Scatter(
                         name=f"{item_data['name']} - 目标金额",
                         x=months,
-                        y=item_data['data'],  # 这里应该使用目标金额数据
+                        y=item_data['target'],
                         mode='lines+markers',
                         line=dict(color=color, width=3, dash='dash'),
                         marker=dict(size=8, symbol='diamond'),
@@ -817,8 +830,9 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
                 # 显示汇总费项列表
                 st.markdown("#### 📋 汇总费项列表")
                 for item_name, item_data in summary_items.items():
-                    total_amount = sum(item_data['data'])
-                    st.info(f"**{item_data['name']}**: 年度总金额 {total_amount:,.2f} 元")
+                    total_actual = sum(item_data['actual'])
+                    total_target = sum(item_data['target'])
+                    st.info(f"**{item_data['name']}**: 年度已发生金额 {total_actual:,.2f} 元，年度目标金额 {total_target:,.2f} 元")
             else:
                 st.info("未找到指定的汇总费项（自有人员汇总、专业外包汇总、劳务派遣汇总）")
             
@@ -1043,7 +1057,7 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
         else:
             st.warning("没有找到二级费项数据")
 
-def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month):
+def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor=False):
     """渲染主仪表盘"""
     # 确保month是整数类型
     month = int(month) if isinstance(month, str) else month
@@ -1052,7 +1066,7 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month):
         return
     
     # 显示KPI指标
-    render_kpi_metrics(all_data, all_main_dfs, month)
+    render_kpi_metrics(all_data, all_main_dfs, month, include_self_owned_labor)
     
     # 根据项目数量选择显示方式
     if len(all_data) == 1:
@@ -1064,7 +1078,7 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month):
         render_single_project_analysis(project_name, data, month)
     else:
         # 多项目模式：显示项目对比分析
-        render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, month)
+        render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor)
     
     # 添加客户下载表格功能 - 移到最后
     st.markdown("---")
@@ -1076,7 +1090,10 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month):
     # 显示表格预览
     st.markdown("#### 项目数据表格预览")
     st.dataframe(client_table, use_container_width=True)
-       
+    
+    # 提供下载按钮
+    st.markdown("#### 📥 下载数据")
+    
     # 转换为Excel格式
     output = pd.ExcelWriter('temp_client_data.xlsx', engine='openpyxl')
     client_table.to_excel(output, sheet_name='客户数据', index=False)

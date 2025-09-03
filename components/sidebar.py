@@ -62,67 +62,11 @@ def render_sidebar(data_dir):
                 file_type = "(需提取表格)" if file in extracted_files else "(普通文件)"
                 st.write(f"{i+1}. {file.name} {file_type}")
             
-            # 自动落盘逻辑
-            total_upload_size = sum([file.size for file in all_uploaded_files]) if all_uploaded_files else 0
-            auto_save_triggered = False
-            if total_upload_size > 500 * 1024 * 1024:  # 500MB
-                st.warning("上传文件总大小超过500MB，已自动保存到data目录后再分析。")
-                auto_save_triggered = True
-                saved_count = 0
-                for file in all_uploaded_files:
-                    try:
-                        file_path = data_dir / file.name
-                        with open(file_path, "wb") as f:
-                            f.write(file.getbuffer())
-                        saved_count += 1
-                    except Exception as e:
-                        st.error(f"自动保存文件 {file.name} 失败: {e}")
-
+            # 注意：已移除文件保存功能，文件只在内存中处理，不会保存到data目录
+            st.info("💡 文件将在内存中处理，不会保存到磁盘，确保数据安全")
             
-            # 保存选项
-            save_option = st.selectbox(
-                "保存到data目录?",
-                ["不保存", "保存所有文件", "选择保存"]
-            )
-            
-            if save_option != "不保存":
-                if save_option == "保存所有文件":
-                    if st.button("保存所有文件"):
-                        saved_count = 0
-                        for file in all_uploaded_files:
-                            try:
-                                file_path = data_dir / file.name
-                                with open(file_path, "wb") as f:
-                                    f.write(file.getbuffer())
-                                saved_count += 1
-                            except Exception as e:
-                                st.error(f"保存文件 {file.name} 失败: {e}")
-                        
-                        if saved_count > 0:
-                            st.rerun()
-                
-                elif save_option == "选择保存":
-                    # 让用户选择要保存的文件
-                    files_to_save = st.multiselect(
-                        "选择要保存的文件:",
-                        [f.name for f in all_uploaded_files],
-                        default=[f.name for f in all_uploaded_files]
-                    )
-                    
-                    if st.button("保存选中文件"):
-                        saved_count = 0
-                        for file in all_uploaded_files:
-                            if file.name in files_to_save:
-                                try:
-                                    file_path = data_dir / file.name
-                                    with open(file_path, "wb") as f:
-                                        f.write(file.getbuffer())
-                                    saved_count += 1
-                                except Exception as e:
-                                    st.error(f"保存文件 {file.name} 失败: {e}")
-                        
-                        if saved_count > 0:
-                            st.rerun()
+            # 移除自动落盘逻辑和保存选项
+            # 文件只在内存中处理，避免数据污染和多用户冲突
         
         st.divider()
         

@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+import os
 from utils.chart_creator import (
     create_pie_chart, 
     create_bar_line_chart, 
@@ -26,7 +27,7 @@ from utils.chart_creator import (
     # create_three_donut_charts_matplotlib # 暂时注释掉 Matplotlib 版本
 )
 
-from utils.data_processor import create_summary_excel, merge_project_data, create_client_download_table, create_monthly_fee_summary, create_secondary_fee_overall_data
+from utils.data_processor import create_summary_excel, merge_project_data, create_client_download_table, create_monthly_fee_summary, create_secondary_fee_overall_data, create_comprehensive_summary_table, create_multi_project_export_data, create_data_summary_tables
 
 def render_kpi_metrics(all_data, all_dfs, month, include_self_owned_labor):
     """渲染KPI指标 - 苹果风格卡片设计"""
@@ -960,37 +961,196 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_se
     
     # 添加客户下载表格功能 - 移到最后
     st.markdown("---")
-    st.subheader("📥 项目数据导出")
+    st.subheader("📥 多项目汇总数据导出")
     
-    # 创建客户下载表格
-    client_table = create_client_download_table(all_main_dfs, all_data)
-    
-    # 显示表格预览
-    st.markdown("#### 项目数据表格预览")
-    st.dataframe(client_table, use_container_width=True)
-    
-    # 提供下载按钮
-    st.markdown("#### 📥 下载数据")
-    
-    # 转换为Excel格式
-    output = pd.ExcelWriter('temp_client_data.xlsx', engine='openpyxl')
-    client_table.to_excel(output, sheet_name='客户数据', index=False)
-    output.close()
-    
-    # 读取文件并创建下载按钮
-    with open('temp_client_data.xlsx', 'rb') as file:
-        st.download_button(
-            label="📥 下载项目数据表格 (Excel)",
-            data=file.read(),
-            file_name=f"客户数据表格_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            help="下载包含所有项目12个月数据的Excel表格"
-        )
-    
-    # 清理临时文件
-    import os
-    if os.path.exists('temp_client_data.xlsx'):
-        os.remove('temp_client_data.xlsx')
+    # 检查是否有多个项目
+    if len(all_data) > 1:
+        # 创建多项目汇总数据
+        multi_project_data = create_multi_project_export_data(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor)
+        
+        if multi_project_data:
+            # 添加预览按钮
+            preview_button_key = f"preview_multi_project_data_{month}"
+            show_preview = st.button("👁️ 预览数据", key=preview_button_key, help="点击查看多项目汇总数据的详细预览")
+            
+            # 只有在点击预览按钮后才显示数据预览
+            if show_preview:
+                # 显示各种汇总数据预览
+                st.markdown("#### 📊 多项目合并指标数据")
+                if '合并指标' in multi_project_data:
+                    # 创建合并指标的DataFrame
+                    merged_metrics_data = []
+                    for month_key, month_data in multi_project_data['合并指标'].items():
+                        merged_metrics_data.append(month_data)
+                    
+                    merged_metrics_df = pd.DataFrame(merged_metrics_data)
+                    st.dataframe(merged_metrics_df, use_container_width=True)
+                
+                # 项目列表
+                st.markdown("#### 📋 合并项目列表")
+                if '项目列表' in multi_project_data:
+                    project_list_df = pd.DataFrame(multi_project_data['项目列表'])
+                    st.dataframe(project_list_df, use_container_width=True)
+                
+                # 月度趋势数据
+                st.markdown("#### 📈 每月费项成本与月累趋势图表源数据")
+                if '月度趋势数据' in multi_project_data:
+                    monthly_trend_df = pd.DataFrame(multi_project_data['月度趋势数据'])
+                    st.dataframe(monthly_trend_df, use_container_width=True)
+                
+                # 项目对比分析
+                st.markdown("#### 🔍 项目对比分析数据表格")
+                if '项目对比分析' in multi_project_data:
+                    project_comparison_df = pd.DataFrame(multi_project_data['项目对比分析'])
+                    st.dataframe(project_comparison_df, use_container_width=True)
+                
+                # 详细指标对比
+                st.markdown("#### 📊 详细指标对比汇总")
+                if '详细指标对比' in multi_project_data:
+                    detailed_comparison_df = pd.DataFrame(multi_project_data['详细指标对比'])
+                    st.dataframe(detailed_comparison_df, use_container_width=True)
+                
+                # 二级费项分析
+                st.markdown("#### 💰 各类二级费项整体分析表格")
+                if '二级费项分析' in multi_project_data:
+                    secondary_fee_df = pd.DataFrame(multi_project_data['二级费项分析'])
+                    st.dataframe(secondary_fee_df, use_container_width=True)
+                
+                # 主控费项异常
+                st.markdown("#### ⚠️ 主控费项异常详情")
+                if '主控费项异常' in multi_project_data:
+                    main_exceptions_df = pd.DataFrame(multi_project_data['主控费项异常'])
+                    st.dataframe(main_exceptions_df, use_container_width=True)
+                
+                # 三级费项异常
+                st.markdown("#### ⚠️ 三级费项异常详情明细")
+                if '三级费项异常' in multi_project_data:
+                    tertiary_exceptions_df = pd.DataFrame(multi_project_data['三级费项异常'])
+                    st.dataframe(tertiary_exceptions_df, use_container_width=True)
+                
+                # 异常排行榜
+                st.markdown("#### 🏆 异常排行榜")
+                
+                # 二级费项异常排行榜
+                st.markdown("##### 🔴 二级费项异常排行榜")
+                if '二级费项异常排行榜' in multi_project_data:
+                    main_ranking_df = pd.DataFrame(multi_project_data['二级费项异常排行榜'])
+                    st.dataframe(main_ranking_df, use_container_width=True)
+                
+                # 三级费项异常排行榜
+                st.markdown("##### 🔵 三级费项异常排行榜")
+                if '三级费项异常排行榜' in multi_project_data:
+                    tertiary_ranking_df = pd.DataFrame(multi_project_data['三级费项异常排行榜'])
+                    st.dataframe(tertiary_ranking_df, use_container_width=True)
+                
+                # 综合异常排行榜
+                st.markdown("##### 🏆 综合异常排行榜")
+                if '综合异常排行榜' in multi_project_data:
+                    total_ranking_df = pd.DataFrame(multi_project_data['综合异常排行榜'])
+                    st.dataframe(total_ranking_df, use_container_width=True)
+                
+                # 项目数据表格预览（关键数据合并）
+                st.markdown("#### 📊 项目数据表格预览（多项目累加汇总）")
+                if '项目数据表格预览' in multi_project_data:
+                    project_preview_df = pd.DataFrame(multi_project_data['项目数据表格预览'])
+                    st.dataframe(project_preview_df, use_container_width=True)
+            
+            # 下载按钮
+            st.markdown("#### 下载多项目汇总数据")
+            
+            # 创建Excel文件，包含多个工作表
+            output = pd.ExcelWriter('temp_multi_project_summary.xlsx', engine='openpyxl')
+            
+            # 按数据类型分别创建工作表
+            sheet_order = [
+                '合并指标', '项目列表', '月度趋势数据', '项目对比分析', 
+                '详细指标对比', '二级费项分析', '主控费项异常', '三级费项异常',
+                '二级费项异常排行榜', '三级费项异常排行榜', '综合异常排行榜',
+                '项目数据表格预览'
+            ]
+            
+            for sheet_name in sheet_order:
+                if sheet_name in multi_project_data:
+                    data = multi_project_data[sheet_name]
+                    if data:
+                        # 检查数据类型并正确创建DataFrame
+                        try:
+                            if isinstance(data, list) and len(data) > 0:
+                                # 如果是列表，直接创建DataFrame
+                                df = pd.DataFrame(data)
+                            elif isinstance(data, dict):
+                                # 如果是字典，转换为列表格式
+                                df = pd.DataFrame([data])
+                            else:
+                                # 其他情况，跳过
+                                st.warning(f"跳过 {sheet_name}：数据格式不正确")
+                                continue
+                            
+                            # 清理工作表名称（Excel限制31字符）
+                            excel_sheet_name = sheet_name[:31]
+                            df.to_excel(output, sheet_name=excel_sheet_name, index=False)
+                            
+                        except Exception as e:
+                            st.error(f"处理 {sheet_name} 数据时出错: {e}")
+                            continue
+            
+            output.close()
+            
+            # 读取文件并创建下载按钮
+            with open('temp_multi_project_summary.xlsx', 'rb') as file:
+                st.download_button(
+                    label="📥 下载多项目汇总数据 (Excel)",
+                    data=file.read(),
+                    file_name=f"多项目汇总数据_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help="下载包含多项目汇总数据的Excel表格，包含12个工作表"
+                )
+            
+            # 新增：下载数据汇总表格（可供二次分析区块项目）
+            st.markdown("#### 下载数据汇总表格（可供二次分析区块项目）")
+            
+            # 创建数据汇总表格
+            summary_tables = create_data_summary_tables(all_main_dfs, all_tertiary_dfs, include_self_owned_labor)
+            
+            if summary_tables:
+                # 创建Excel文件，包含数据汇总表格
+                summary_output = pd.ExcelWriter('temp_data_summary_tables.xlsx', engine='openpyxl')
+                
+                # 按表格类型分别创建工作表
+                for sheet_name, df in summary_tables.items():
+                    if df is not None and not df.empty:
+                        try:
+                            # 清理工作表名称（Excel限制31字符）
+                            excel_sheet_name = sheet_name[:31]
+                            df.to_excel(summary_output, sheet_name=excel_sheet_name, index=False)
+                        except Exception as e:
+                            st.error(f"处理 {sheet_name} 数据时出错: {e}")
+                            continue
+                
+                summary_output.close()
+                
+                # 读取文件并创建下载按钮
+                with open('temp_data_summary_tables.xlsx', 'rb') as file:
+                    st.download_button(
+                        label="📥 下载数据汇总表格 (Excel)",
+                        data=file.read(),
+                        file_name=f"数据汇总表格_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        help="下载包含多项目4主要费项、4-1主要费项和三级费项月累表格累加数据的Excel表格"
+                    )
+                
+                # 清理临时文件
+                if os.path.exists('temp_data_summary_tables.xlsx'):
+                    os.remove('temp_data_summary_tables.xlsx')
+            else:
+                st.warning("⚠️ 无法创建数据汇总表格，请检查项目数据")
+            
+            # 清理临时文件
+            if os.path.exists('temp_multi_project_summary.xlsx'):
+                os.remove('temp_multi_project_summary.xlsx')
+    else:
+        st.info("⚠️ 多项目汇总数据导出功能需要选择多个项目才能使用")
+        st.info("💡 请选择多个项目文件进行分析，然后即可导出多项目汇总数据")
 
 def render_exception_ranking(all_data, month):
     """渲染异常数量排行榜"""

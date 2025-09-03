@@ -2,14 +2,14 @@ import streamlit as st
 from pathlib import Path
 from components.sidebar import render_sidebar
 from components.dashboard import render_dashboard
-from utils.data_processor import load_and_process_files, create_summary_excel, extract_table_from_excel, get_excel_files
+from utils.data_processor import load_and_process_files, create_summary_excel, extract_table_from_excel
 from utils.cache_manager import get_cache_manager
 from components.cache_indicator import start_performance_timer, end_performance_timer, show_cache_benefit_message
 
 # 页面配置
 st.set_page_config(
     page_title="运营成本管理看板",
-    page_icon="icon icon1",  # 使用用户指定的本地图片路径
+    page_icon="📊",  # 使用emoji图标替代本地图片
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -18,123 +18,12 @@ st.set_page_config(
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
 
-# 输出目录
-OUTPUT_DIR = Path("output")
-OUTPUT_DIR.mkdir(exist_ok=True)
+# 注意：已移除output目录，现在使用内存缓存
 
 def main():
     st.title("运营成本管理看板")
     
-    # ====== 文件管理主页面实现 ======
-    existing_files = get_excel_files(DATA_DIR)
-    if 'main_show_file_manager' not in st.session_state:
-        st.session_state.main_show_file_manager = False
-    # 初始化 main_selected_files，防止未初始化报错
-    if 'main_selected_files' not in st.session_state:
-        st.session_state.main_selected_files = []
-    if st.button("📋 管理文件", type="primary"):
-        st.session_state.main_show_file_manager = True
-    if st.session_state.main_show_file_manager:
-        st.subheader("📂 文件管理")
-        st.write(f"**data目录中有 {len(existing_files)} 个文件:**")
-        # 按钮排布优化：一行四列
-        col_a, col_b, col_c, col_d = st.columns([1,1,1,1])
-        with col_a:
-            if st.button("✅ 全选", key="main_select_all"):
-                st.session_state.main_selected_files = [f.name for f in existing_files]
-        with col_b:
-            if st.button("❌ 取消全选", key="main_deselect_all"):
-                st.session_state.main_selected_files = []
-        with col_c:
-            if st.button("🗑️ 批量删除", key="main_batch_delete"):
-                selected_files = st.session_state.main_selected_files
-                if selected_files:
-                    deleted_count = 0
-                    for filename in selected_files:
-                        file_path = DATA_DIR / filename
-                        if file_path.exists():
-                            try:
-                                file_path.unlink()
-                                deleted_count += 1
-                            except Exception as e:
-                                st.error(f"删除 {filename} 失败: {e}")
-                    if deleted_count > 0:
-                        st.session_state.main_selected_files = []
-                        st.rerun()
-                else:
-                    st.warning("请先选择要删除的文件")
-        with col_d:
-            if st.button("❌ 关闭管理", key="main_close_manager"):
-                st.session_state.main_show_file_manager = False
-                st.rerun()
-        st.markdown("---")
-        # 文件列表 - 固定高度滚动条，展示所有文件
-        st.write("**文件列表:**")
-        st.markdown("""
-            <style>
-            .main-file-list-scroll {
-                max-height: 250px;
-                overflow-y: auto;
-                border: 1px solid #ddd;
-                border-radius: 8px;
-                background: #fff;
-                padding: 8px;
-                margin: 8px 0;
-            }
-            </style>
-        """, unsafe_allow_html=True)
-        st.markdown('<div class="main-file-list-scroll">', unsafe_allow_html=True)
-        for i, file in enumerate(existing_files):
-            col1, col2, col3, col4 = st.columns([1, 3, 1, 1])
-            with col1:
-                is_selected = file.name in st.session_state.main_selected_files
-                if st.checkbox("", value=is_selected, key=f"main_check_{i}"):
-                    if file.name not in st.session_state.main_selected_files:
-                        st.session_state.main_selected_files.append(file.name)
-                else:
-                    if file.name in st.session_state.main_selected_files:
-                        st.session_state.main_selected_files.remove(file.name)
-            with col2:
-                st.write(f"{i+1}. {file.name}")
-            with col3:
-                if st.button("删除", key=f"main_del_{i}"):
-                    try:
-                        file.unlink()
-                        if file.name in st.session_state.main_selected_files:
-                            st.session_state.main_selected_files.remove(file.name)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"删除失败: {e}")
-            with col4:
-                if st.button("重命名", key=f"main_rename_{i}"):
-                    st.session_state.main_renaming_file = file.name
-                    st.session_state.main_renaming_index = i
-        st.markdown('</div>', unsafe_allow_html=True)
-        # 不再显示“还有X个文件未显示”提示
-        # 重命名弹窗
-        if st.session_state.get('main_renaming_file'):
-            st.write(f"**重命名文件: {st.session_state.main_renaming_file}**")
-            new_name = st.text_input("新文件名 (保留.xlsx扩展名):", value=st.session_state.main_renaming_file, key="main_new_filename")
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("确认重命名", key="main_confirm_rename"):
-                    try:
-                        old_path = DATA_DIR / st.session_state.main_renaming_file
-                        new_path = DATA_DIR / new_name
-                        old_path.rename(new_path)
-                        if st.session_state.main_renaming_file in st.session_state.main_selected_files:
-                            st.session_state.main_selected_files.remove(st.session_state.main_renaming_file)
-                            st.session_state.main_selected_files.append(new_name)
-                        st.session_state.main_renaming_file = None
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"重命名失败: {e}")
-            with col2:
-                if st.button("取消", key="main_cancel_rename"):
-                    st.session_state.main_renaming_file = None
-                    st.rerun()
-        st.markdown("---")
-    # ====== 文件管理主页面实现 END ======
+    # 注意：已移除文件管理功能，现在专注于数据分析
 
     # ====== 缓存管理功能 ======
     cache_manager = get_cache_manager()
@@ -177,7 +66,7 @@ def main():
                 st.rerun()
         
         st.markdown("---")
-        st.info("💡 **缓存说明:** 系统会自动缓存已处理的数据，相同文件再次选择时将直接从缓存加载，大幅提升加载速度。缓存有效期为24小时。")
+        st.info("💡 **缓存说明:** 系统使用内存缓存已处理的数据，相同文件再次选择时将直接从内存加载，大幅提升加载速度。缓存有效期为24小时，会话结束后自动清理。")
     
     # ====== 缓存管理功能 END ======
 

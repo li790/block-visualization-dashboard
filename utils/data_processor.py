@@ -456,7 +456,10 @@ def process_excel_data(df, month, project_name=None, include_self_owned_labor=Fa
             'month_usage': month_usage,
             'time_progress': time_progress,
             'fee_items': processed_fee_items,
-            'exceptions': exceptions
+            'exceptions': exceptions,
+            # 添加月累目标和月累已发生字段（万元）
+            'month_cum_target_wy': round(cum_target[month-1] / 10000, 2) if month-1 < len(cum_target) else 0,
+            'month_cum_actual_wy': round(cum_actual[month-1] / 10000, 2) if month-1 < len(cum_actual) else 0
         }
         
         # 保存到缓存
@@ -470,27 +473,17 @@ def process_excel_data(df, month, project_name=None, include_self_owned_labor=Fa
         st.error(f"处理Excel文件时出错: {e}")
         return None
 
-def load_and_process_files(uploaded_files, selected_files, data_dir, output_dir, month, include_self_owned_labor=False):
+def load_and_process_files(uploaded_files, selected_files, data_dir, month, include_self_owned_labor=False):
     """加载并处理多个文件，数据需拆解处理
     data_dir: 存放原始数据的目录
-    output_dir: 存放分析数据表和缓冲数据的目录
     include_self_owned_labor: 是否包含自有人工成本
+    注意：已移除output_dir依赖，现在使用内存缓存
     """
     all_data = {}
     all_main_dfs = {}
     all_tertiary_dfs = {}
     
-    # 创建缓冲数据目录
-    buffer_dir = output_dir / 'buffer'
-    buffer_dir.mkdir(exist_ok=True)
-    
-    # 创建分析结果目录
-    analysis_dir = output_dir / 'analysis_results'
-    analysis_dir.mkdir(exist_ok=True)
-    
-    # 创建处理后数据目录
-    processed_dir = output_dir / 'processed_data'
-    processed_dir.mkdir(exist_ok=True)
+    # 注意：已移除文件系统缓存，现在使用内存缓存
     
     # 处理上传的文件（这些文件已经在sidebar中处理过了，这里只需要处理已提取的数据）
     if uploaded_files:
@@ -507,12 +500,7 @@ def load_and_process_files(uploaded_files, selected_files, data_dir, output_dir,
                     st.warning(f"无法从文件 {uploaded_file.name} 中提取有效数据")
                     continue
 
-                # 保存提取后的数据到唯一文件名
-                main_file_path = processed_dir / f"{unique_filename}_主要费项.xlsx"
-                tertiary_file_path = processed_dir / f"{unique_filename}_三级费项.xlsx"
-                main_df.to_excel(main_file_path, index=False)
-                tertiary_df.to_excel(tertiary_file_path, index=False)
-
+                # 注意：不再保存到文件系统，数据只在内存中处理
                 # 处理数据
                 all_main_dfs[unique_filename] = main_df
                 all_tertiary_dfs[unique_filename] = tertiary_df
@@ -527,14 +515,7 @@ def load_and_process_files(uploaded_files, selected_files, data_dir, output_dir,
                     data['tertiary_fee_items'] = tertiary_result['tertiary_fee_items']
                     data['tertiary_exceptions'] = tertiary_result['exceptions']
 
-                # 保存分析结果到output目录
-                analysis_file_path = analysis_dir / f"{unique_filename}_分析结果.xlsx"
-                with pd.ExcelWriter(analysis_file_path) as writer:
-                    if data and 'fee_items' in data:
-                        pd.DataFrame(data['fee_items']).to_excel(writer, sheet_name='二级费项分析', index=False)
-                    if data and 'tertiary_fee_items' in data:
-                        pd.DataFrame(data['tertiary_fee_items']).to_excel(writer, sheet_name='三级费项分析', index=False)
-
+                # 注意：不再保存分析结果到文件系统，数据只在内存中处理
                 st.success(f"成功处理文件: {uploaded_file.name}")
             except Exception as e:
                 st.error(f"处理上传文件 {uploaded_file.name} 时出错: {e}")
@@ -569,16 +550,8 @@ def load_and_process_files(uploaded_files, selected_files, data_dir, output_dir,
                     tertiary_result = process_tertiary_fee_data(tertiary_df, month, project_name, include_self_owned_labor)
                     data['tertiary_fee_items'] = tertiary_result['tertiary_fee_items']
                     data['tertiary_exceptions'] = tertiary_result['exceptions']
-                    
-                # 保存分析结果到output目录
-                analysis_file_path = analysis_dir / f"{project_name}_分析结果.xlsx"
-                with pd.ExcelWriter(analysis_file_path) as writer:
-                    if data and 'fee_items' in data:
-                        pd.DataFrame(data['fee_items']).to_excel(writer, sheet_name='二级费项分析', index=False)
-                    if data and 'tertiary_fee_items' in data:
-                        pd.DataFrame(data['tertiary_fee_items']).to_excel(writer, sheet_name='三级费项分析', index=False)
                 
-                st.success(f"成功处理文件: {filename}")
+                # 注意：不再保存分析结果到文件系统，数据只在内存中处理
             except Exception as e:
                 st.error(f"处理文件 {filename} 时出错: {e}")
     
@@ -960,6 +933,14 @@ def merge_project_data(all_data, all_main_dfs, month, include_self_owned_labor=F
                 # 月累使用率 = 当前月累计已发生 / 当前月累计目标
                 if merged_data['cum_target'][current_month] > 0:
                     merged_data['month_usage'] = round(100 * merged_data['cum_actual'][current_month] / merged_data['cum_target'][current_month], 2)
+            
+            # 添加月累目标和月累已发生字段（万元）
+            if current_month >= 0 and current_month < 12:
+                merged_data['month_cum_target_wy'] = round(merged_data['cum_target'][current_month] / 10000, 2)
+                merged_data['month_cum_actual_wy'] = round(merged_data['cum_actual'][current_month] / 10000, 2)
+            else:
+                merged_data['month_cum_target_wy'] = 0
+                merged_data['month_cum_actual_wy'] = 0
     
     # 确保项目列表信息被添加
     if merged_data and 'merged_projects' not in merged_data:
@@ -1678,3 +1659,794 @@ def recalculate_project_metrics_for_month(data, month, project_name=None, includ
         cache_manager.save_project_analysis_cache(project_name, month, updated_data, include_self_owned_labor)
     
     return updated_data
+
+def create_comprehensive_summary_table(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor=False):
+    """创建综合汇总表格，包含所有图表显示的数据
+    
+    Args:
+        all_data: 所有项目的数据字典
+        all_main_dfs: 所有项目的主要费项DataFrame
+        all_tertiary_dfs: 所有项目的三级费项DataFrame
+        month: 选择的月份
+        include_self_owned_labor: 是否包含自有人工成本
+        
+    Returns:
+        DataFrame: 综合汇总表格
+    """
+    try:
+        summary_data = []
+        
+        # 1. 项目基本信息汇总
+        for project_name, data in all_data.items():
+            if not isinstance(data, dict):
+                continue
+                
+            # 获取主要费项数据
+            fee_items = data.get('fee_items', [])
+            if isinstance(fee_items, list):
+                for item in fee_items:
+                    if isinstance(item, dict):
+                        # 使用正确的字段名称
+                        fee_name = item.get('name', '')
+                        cum_target = item.get('cum_target', 0)
+                        cum_actual = item.get('cum_actual', 0)
+                        
+                        # 计算使用率
+                        usage_rate = round(100 * cum_actual / cum_target, 2) if cum_target else 0
+                        
+                        summary_data.append({
+                            '数据类型': '项目基本信息',
+                            '项目名称': project_name,
+                            '费项名称': fee_name,
+                            '费项编码': f'FEE_{len(summary_data)}',  # 生成编码
+                            '目标金额': cum_target,
+                            '已发生金额': cum_actual,
+                            '使用率': usage_rate,
+                            '月份': month,
+                            '数据来源': '主要费项分析'
+                        })
+            
+            # 获取三级费项数据
+            tertiary_items = data.get('tertiary_fee_items', [])
+            if isinstance(tertiary_items, list):
+                for item in tertiary_items:
+                    if isinstance(item, dict):
+                        # 使用正确的字段名称
+                        fee_name = item.get('name', '')
+                        cum_target = item.get('cum_target', 0)
+                        cum_actual = item.get('cum_actual', 0)
+                        
+                        # 计算使用率
+                        usage_rate = round(100 * cum_actual / cum_target, 2) if cum_target else 0
+                        
+                        summary_data.append({
+                            '数据类型': '三级费项明细',
+                            '项目名称': project_name,
+                            '费项名称': fee_name,
+                            '费项编码': f'TER_{len(summary_data)}',  # 生成编码
+                            '目标金额': cum_target,
+                            '已发生金额': cum_actual,
+                            '使用率': usage_rate,
+                            '月份': month,
+                            '数据来源': '三级费项分析'
+                        })
+            
+            # 获取异常数据
+            exceptions = data.get('exceptions', [])
+            if isinstance(exceptions, list):
+                for item in exceptions:
+                    if isinstance(item, dict):
+                        # 使用正确的字段名称
+                        fee_name = item.get('fee_name', '')
+                        cum_actual = item.get('cum_actual', 0)
+                        cum_target = item.get('cum_target', 0)
+                        year_target = item.get('year_target', 0)
+                        
+                        # 计算使用率
+                        usage_rate = round(100 * cum_actual / year_target, 2) if year_target else 0
+                        
+                        summary_data.append({
+                            '数据类型': '异常数据',
+                            '项目名称': project_name,
+                            '费项名称': fee_name,
+                            '费项编码': f'EXC_{len(summary_data)}',  # 生成编码
+                            '异常类型': item.get('exception_type', ''),
+                            '异常月份': item.get('month', ''),
+                            '目标金额': cum_target,
+                            '已发生金额': cum_actual,
+                            '使用率': usage_rate,
+                            '月份': month,
+                            '数据来源': '异常检测'
+                        })
+            
+            # 获取三级费项异常
+            tertiary_exceptions = data.get('tertiary_exceptions', [])
+            if isinstance(tertiary_exceptions, list):
+                for item in tertiary_exceptions:
+                    if isinstance(item, dict):
+                        # 使用正确的字段名称
+                        fee_name = item.get('fee_name', '')
+                        cum_actual = item.get('cum_actual', 0)
+                        cum_target = item.get('cum_target', 0)
+                        year_target = item.get('year_target', 0)
+                        
+                        # 计算使用率
+                        usage_rate = round(100 * cum_actual / year_target, 2) if year_target else 0
+                        
+                        summary_data.append({
+                            '数据类型': '三级费项异常',
+                            '项目名称': project_name,
+                            '费项名称': fee_name,
+                            '费项编码': f'TER_EXC_{len(summary_data)}',  # 生成编码
+                            '异常类型': item.get('exception_type', ''),
+                            '异常月份': item.get('month', ''),
+                            '目标金额': cum_target,
+                            '已发生金额': cum_actual,
+                            '使用率': usage_rate,
+                            '月份': month,
+                            '数据来源': '三级费项异常检测'
+                        })
+        
+        # 2. 多项目汇总数据（如果有多个项目）
+        if len(all_data) > 1:
+            merged_data = merge_project_data(all_data, all_main_dfs, month, include_self_owned_labor)
+            if merged_data:
+                # 添加合并后的汇总数据
+                summary_data.append({
+                    '数据类型': '多项目汇总',
+                    '项目名称': '所有项目汇总',
+                    '费项名称': '总成本',
+                    '费项编码': 'TOTAL',
+                    '目标金额': merged_data.get('total_target', 0),
+                    '已发生金额': merged_data.get('total_actual', 0),
+                    '使用率': merged_data.get('total_usage_rate', 0),
+                    '月份': month,
+                    '数据来源': '多项目合并分析'
+                })
+        
+        # 3. 月度趋势数据
+        for project_name, data in all_data.items():
+            if not isinstance(data, dict):
+                continue
+                
+            # 获取月度数据（如果有的话）
+            monthly_data = data.get('monthly_data', {})
+            if isinstance(monthly_data, dict):
+                for month_num, month_info in monthly_data.items():
+                    if isinstance(month_info, dict):
+                        summary_data.append({
+                            '数据类型': '月度趋势',
+                            '项目名称': project_name,
+                            '费项名称': '月度累计',
+                            '费项编码': f'MONTH_{month_num}',
+                            '目标金额': month_info.get('target', 0),
+                            '已发生金额': month_info.get('actual', 0),
+                            '使用率': month_info.get('usage_rate', 0),
+                            '月份': month_num,
+                            '数据来源': '月度趋势分析'
+                        })
+        
+        # 创建DataFrame
+        if summary_data:
+            summary_df = pd.DataFrame(summary_data)
+            
+            # 重新排列列顺序
+            column_order = [
+                '数据类型', '项目名称', '费项名称', '费项编码', 
+                '目标金额', '已发生金额', '使用率', '月份', '数据来源'
+            ]
+            
+            # 确保所有列都存在
+            for col in column_order:
+                if col not in summary_df.columns:
+                    summary_df[col] = ''
+            
+            # 重新排列列顺序
+            summary_df = summary_df[column_order]
+            
+            # 格式化数值列
+            if '目标金额' in summary_df.columns:
+                summary_df['目标金额'] = pd.to_numeric(summary_df['目标金额'], errors='coerce').fillna(0)
+            if '已发生金额' in summary_df.columns:
+                summary_df['已发生金额'] = pd.to_numeric(summary_df['已发生金额'], errors='coerce').fillna(0)
+            if '使用率' in summary_df.columns:
+                summary_df['使用率'] = pd.to_numeric(summary_df['使用率'], errors='coerce').fillna(0)
+            
+            return summary_df
+        else:
+            return pd.DataFrame()
+            
+    except Exception as e:
+        st.error(f"创建综合汇总表格时出错: {e}")
+        return pd.DataFrame()
+
+def create_multi_project_export_data(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor=False):
+    """创建多项目汇总数据导出表格，包含用户当前选择月份的多项目合并指标数据
+    
+    Args:
+        all_data: 所有项目的数据字典
+        all_main_dfs: 所有项目的主要费项DataFrame
+        all_tertiary_dfs: 所有项目的三级费项DataFrame
+        month: 选择的月份
+        include_self_owned_labor: 是否包含自有人工成本
+        
+    Returns:
+        dict: 包含各种汇总数据的字典
+    """
+    try:
+        export_data = {}
+        
+        # 1. 多项目合并指标数据（包含所有月份）
+        merged_metrics = {}
+        
+        # 先计算所有项目的年度总数据（只需要计算一次）
+        total_year_target = 0
+        total_year_actual = 0
+        
+        for project_name, data in all_data.items():
+            if not isinstance(data, dict):
+                continue
+            # 累加年度总目标
+            year_target = data.get('year_cum_target_wy', 0)
+            total_year_target += year_target
+            # 累加年度总实际
+            year_actual = data.get('year_cum_actual_wy', 0)
+            total_year_actual += year_actual
+        
+        # 计算所有月份（1-12月）的合并指标
+        for month_idx in range(1, 13):
+            month_num = month_idx
+            
+            # 初始化该月的累加数据
+            month_cum_target = 0
+            month_cum_actual = 0
+            
+            # 累加所有项目在该月的累计数据
+            for project_name, data in all_data.items():
+                if not isinstance(data, dict):
+                    continue
+                    
+                # 获取该月的累计目标数据
+                cum_target = data.get('cum_target', [])
+                if month_idx <= len(cum_target):
+                    month_cum_target += cum_target[month_idx - 1]
+                
+                # 获取该月的累计实际数据
+                cum_actual = data.get('cum_actual', [])
+                if month_idx <= len(cum_actual):
+                    month_cum_actual += cum_actual[month_idx - 1]
+            
+            # 计算该月的指标
+            year_usage_rate = round((total_year_actual / total_year_target * 100), 2) if total_year_target > 0 else 0
+            month_usage_rate = round((month_cum_actual / month_cum_target * 100), 2) if month_cum_target > 0 else 0
+            time_progress = round((month_num / 12 * 100), 2)
+            
+            # 转换为万元
+            total_year_target_wy = total_year_target  # 已经是万元，不需要转换
+            total_year_actual_wy = total_year_actual  # 已经是万元，不需要转换
+            month_cum_target_wy = round(month_cum_target / 10000, 2)
+            month_cum_actual_wy = round(month_cum_actual / 10000, 2)
+            
+            # 存储该月的合并指标
+            merged_metrics[f'{month_num}月'] = {
+                '月份': month_num,
+                '年总目标(万元)': total_year_target_wy,
+                '年总已发生(万元)': total_year_actual_wy,
+                '月累目标(万元)': month_cum_target_wy,
+                '月累已发生(万元)': month_cum_actual_wy,
+                '年使用率(%)': year_usage_rate,
+                '月累使用率(%)': month_usage_rate,
+                '时间进度(%)': time_progress
+            }
+        
+        export_data['合并指标'] = merged_metrics
+        
+        # 2. 合并项目列表
+        project_list = []
+        for project_name in all_data.keys():
+            project_list.append({
+                '项目名称': project_name,
+                '项目类型': '成本分析项目',
+                '包含自有人工成本': include_self_owned_labor
+            })
+        export_data['项目列表'] = project_list
+        
+        # 3. 每月费项成本与月累趋势图表源数据
+        monthly_trend_data = []
+        for project_name, data in all_data.items():
+            if isinstance(data, dict):
+                cum_target = data.get('cum_target', [])
+                cum_actual = data.get('cum_actual', [])
+                
+                for i, (target, actual) in enumerate(zip(cum_target, cum_actual)):
+                    if i < len(cum_target) and i < len(cum_actual):
+                        monthly_trend_data.append({
+                            '项目名称': project_name,
+                            '月份': i + 1,
+                            '累计目标成本': target,
+                            '累计已发生成本': actual,
+                            '使用率': round(100 * actual / target, 2) if target else 0
+                        })
+        export_data['月度趋势数据'] = monthly_trend_data
+        
+        # 4. 项目对比分析数据表格
+        project_comparison = []
+        for project_name, data in all_data.items():
+            if isinstance(data, dict):
+                fee_items = data.get('fee_items', [])
+                if isinstance(fee_items, list):
+                    for item in fee_items:
+                        if isinstance(item, dict):
+                            fee_name = item.get('name', '')
+                            cum_target = item.get('cum_target', 0)
+                            cum_actual = item.get('cum_actual', 0)
+                            usage_rate = round(100 * cum_actual / cum_target, 2) if cum_target else 0
+                            
+                            project_comparison.append({
+                                '项目名称': project_name,
+                                '费项名称': fee_name,
+                                '费项编码': f'FEE_{len(project_comparison)}',
+                                '目标金额': cum_target,
+                                '已发生金额': cum_actual,
+                                '使用率': usage_rate,
+                                '月份': month
+                            })
+        export_data['项目对比分析'] = project_comparison
+        
+        # 5. 详细指标对比汇总
+        detailed_comparison = []
+        for project_name, data in all_data.items():
+            if isinstance(data, dict):
+                detailed_comparison.append({
+                    '项目名称': project_name,
+                    '年总目标成本': data.get('year_cum_target_wy', 0),
+                    '年总已发生成本': data.get('year_cum_actual_wy', 0),
+                    '月累目标成本': data.get('month_cum_target_wy', 0),
+                    '月累已发生成本': data.get('month_cum_actual_wy', 0),
+                    '年使用率': data.get('year_usage', 0),
+                    '月累使用率': data.get('month_usage', 0),
+                    '时间进度': data.get('time_progress', 0)
+                })
+        export_data['详细指标对比'] = detailed_comparison
+        
+        # 6. 各类二级费项整体分析表格
+        secondary_fee_analysis = []
+        for project_name, data in all_data.items():
+            if isinstance(data, dict):
+                fee_items = data.get('fee_items', [])
+                if isinstance(fee_items, list):
+                    for item in fee_items:
+                        if isinstance(item, dict):
+                            fee_name = item.get('name', '')
+                            cum_target = item.get('cum_target', 0)
+                            cum_actual = item.get('cum_actual', 0)
+                            usage_rate = round(100 * cum_actual / cum_target, 2) if cum_target else 0
+                            
+                            secondary_fee_analysis.append({
+                                '项目名称': project_name,
+                                '二级费项名称': fee_name,
+                                '累计目标成本': cum_target,
+                                '累计已发生成本': cum_actual,
+                                '使用率': usage_rate,
+                                '分析月份': month
+                            })
+        export_data['二级费项分析'] = secondary_fee_analysis
+        
+        # 7. 主控费项异常详情
+        main_exceptions = []
+        for project_name, data in all_data.items():
+            if isinstance(data, dict):
+                exceptions = data.get('exceptions', [])
+                if isinstance(exceptions, list):
+                    for item in exceptions:
+                        if isinstance(item, dict):
+                            main_exceptions.append({
+                                '项目名称': project_name,
+                                '费项名称': item.get('fee_name', ''),
+                                '异常月份': item.get('month', ''),
+                                '异常类型': item.get('exception_type', ''),
+                                '累计目标成本': item.get('cum_target', 0),
+                                '累计已发生成本': item.get('cum_actual', 0),
+                                '年总目标成本': item.get('year_target', 0),
+                                '异常说明': f"{item.get('exception_type', '')}异常：已发生成本超过目标"
+                            })
+        export_data['主控费项异常'] = main_exceptions
+        
+        # 8. 三级费项异常详情明细
+        tertiary_exceptions = []
+        for project_name, data in all_data.items():
+            if isinstance(data, dict):
+                tertiary_exceptions_data = data.get('tertiary_exceptions', [])
+                if isinstance(tertiary_exceptions_data, list):
+                    for item in tertiary_exceptions_data:
+                        if isinstance(item, dict):
+                            tertiary_exceptions.append({
+                                '项目名称': project_name,
+                                '费项名称': item.get('fee_name', ''),
+                                '异常月份': item.get('month', ''),
+                                '异常类型': item.get('exception_type', ''),
+                                '累计目标成本': item.get('cum_target', 0),
+                                '累计已发生成本': item.get('cum_actual', 0),
+                                '年总目标成本': item.get('year_target', 0),
+                                '异常说明': f"{item.get('exception_type', '')}异常：已发生成本超过目标"
+                            })
+        export_data['三级费项异常'] = tertiary_exceptions
+        
+        # 9. 异常排行榜数据
+        # 统计每个项目的异常数量
+        project_stats = {}
+        for project_name, data in all_data.items():
+            if not isinstance(data, dict):
+                continue
+                
+            # 统计二级费项异常（主控费项异常）
+            main_exceptions = data.get('exceptions', [])
+            if not isinstance(main_exceptions, list):
+                main_exceptions = []
+                
+            main_red_count = 0
+            main_yellow_count = 0
+            for e in main_exceptions:
+                if isinstance(e, dict):
+                    # 处理异常数据中的月份格式
+                    exception_month = e.get('month', 0)
+                    if isinstance(exception_month, str):
+                        import re
+                        month_match = re.search(r'(\d+)', exception_month)
+                        if month_match:
+                            exception_month = int(month_match.group(1))
+                        else:
+                            exception_month = 0
+                    else:
+                        exception_month = int(exception_month) if exception_month is not None else 0
+                    
+                    if e.get('exception_type') == 'red' and exception_month <= month:
+                        main_red_count += 1
+                    elif e.get('exception_type') == 'yellow' and exception_month <= month:
+                        main_yellow_count += 1
+            
+            # 统计三级费项异常
+            tertiary_exceptions_data = data.get('tertiary_exceptions', [])
+            if not isinstance(tertiary_exceptions_data, list):
+                tertiary_exceptions_data = []
+                
+            tertiary_red_count = 0
+            tertiary_yellow_count = 0
+            for e in tertiary_exceptions_data:
+                if isinstance(e, dict):
+                    # 处理异常数据中的月份格式
+                    exception_month = e.get('month', 0)
+                    if isinstance(exception_month, str):
+                        import re
+                        month_match = re.search(r'(\d+)', exception_month)
+                        if month_match:
+                            exception_month = int(month_match.group(1))
+                        else:
+                            exception_month = 0
+                    else:
+                        exception_month = int(exception_month) if exception_month is not None else 0
+                    
+                    if e.get('exception_type') == 'red' and exception_month <= month:
+                        tertiary_red_count += 1
+                    elif e.get('exception_type') == 'yellow' and exception_month <= month:
+                        tertiary_yellow_count += 1
+            
+            # 计算总数
+            main_total = main_red_count + main_yellow_count
+            tertiary_total = tertiary_red_count + tertiary_yellow_count
+            total_exceptions = main_total + tertiary_total
+            
+            project_stats[project_name] = {
+                'main_red': main_red_count,
+                'main_yellow': main_yellow_count,
+                'main_total': main_total,
+                'tertiary_red': tertiary_red_count,
+                'tertiary_yellow': tertiary_yellow_count,
+                'tertiary_total': tertiary_total,
+                'total_exceptions': total_exceptions
+            }
+        
+        # 创建异常排行榜数据
+        if project_stats:
+            # 二级费项异常排行榜
+            main_ranking = sorted(project_stats.items(), key=lambda x: x[1]['main_total'], reverse=True)
+            main_ranking_data = []
+            for rank, (project_name, stats) in enumerate(main_ranking, 1):
+                main_ranking_data.append({
+                    '排名': rank,
+                    '项目名称': project_name,
+                    '红色异常': stats['main_red'],
+                    '黄色异常': stats['main_yellow'],
+                    '总异常数': stats['main_total']
+                })
+            export_data['二级费项异常排行榜'] = main_ranking_data
+            
+            # 三级费项异常排行榜
+            tertiary_ranking = sorted(project_stats.items(), key=lambda x: x[1]['tertiary_total'], reverse=True)
+            tertiary_ranking_data = []
+            for rank, (project_name, stats) in enumerate(tertiary_ranking, 1):
+                tertiary_ranking_data.append({
+                    '排名': rank,
+                    '项目名称': project_name,
+                    '红色异常': stats['tertiary_red'],
+                    '黄色异常': stats['tertiary_yellow'],
+                    '总异常数': stats['tertiary_total']
+                })
+            export_data['三级费项异常排行榜'] = tertiary_ranking_data
+            
+            # 综合异常排行榜
+            total_ranking = sorted(project_stats.items(), key=lambda x: x[1]['total_exceptions'], reverse=True)
+            total_ranking_data = []
+            for rank, (project_name, stats) in enumerate(total_ranking, 1):
+                total_ranking_data.append({
+                    '排名': rank,
+                    '项目名称': project_name,
+                    '二级费项异常': stats['main_total'],
+                    '三级费项异常': stats['tertiary_total'],
+                    '总异常数': stats['total_exceptions']
+                })
+            export_data['综合异常排行榜'] = total_ranking_data
+        
+        # 10. 项目数据表格预览数据（关键数据合并）
+        # 参考图二格式：数据类型行 + 12个月列
+        project_data_preview = []
+        
+        # 初始化12个月的数据累加
+        monthly_actual_sum = [0] * 12      # 月度已发生金额累加
+        monthly_target_sum = [0] * 12      # 月度目标金额累加
+        cum_actual_sum = [0] * 12          # 月累已发生金额累加
+        cum_target_sum = [0] * 12          # 月累目标金额累加
+        
+        # 累加所有项目的数据
+        for project_name, data in all_data.items():
+            if not isinstance(data, dict):
+                continue
+                
+            # 调试：打印数据结构
+            if project_name == list(all_data.keys())[0]:  # 只打印第一个项目的数据结构
+                print(f"Debug - Project {project_name} data keys: {list(data.keys())}")
+                if 'monthly_data' in data:
+                    print(f"Debug - monthly_data structure: {data['monthly_data']}")
+                else:
+                    print(f"Debug - No monthly_data field found")
+                
+            # 获取月度数据
+            monthly_data = data.get('monthly_data', {})
+            if not isinstance(monthly_data, dict):
+                continue
+                
+            # 获取累计目标数据
+            cum_target = data.get('cum_target', [])
+            if not isinstance(cum_target, list):
+                cum_target = []
+                
+            # 获取累计实际数据
+            cum_actual = data.get('cum_actual', [])
+            if not isinstance(cum_actual, list):
+                cum_actual = []
+                
+            # 获取月度目标数据
+            monthly_target = data.get('monthly_target', [])
+            if not isinstance(monthly_target, list):
+                monthly_target = []
+                
+            # 获取月度实际数据
+            monthly_actual = data.get('monthly_actual', [])
+            if not isinstance(monthly_actual, list):
+                monthly_actual = []
+            
+            # 累加12个月的数据
+            for month_idx in range(12):
+                month_key = f'{month_idx + 1}月'
+                
+                # 累加月度数据 - 修复：从累计数据中计算月度数据
+                month_actual = 0
+                if month_idx < len(cum_actual):
+                    if month_idx == 0:
+                        month_actual = cum_actual[month_idx]  # 第1月 = 第1月累计
+                    else:
+                        month_actual = cum_actual[month_idx] - cum_actual[month_idx - 1]  # 其他月 = 当月累计 - 上月累计
+                monthly_actual_sum[month_idx] += month_actual
+                
+                # 累加月度目标 - 修复：从累计数据中计算月度数据
+                month_target = 0
+                if month_idx < len(cum_target):
+                    if month_idx == 0:
+                        month_target = cum_target[month_idx]  # 第1月 = 第1月累计
+                    else:
+                        month_target = cum_target[month_idx] - cum_target[month_idx - 1]  # 其他月 = 当月累计 - 上月累计
+                monthly_target_sum[month_idx] += month_target
+                
+                # 累加累计数据
+                cum_target_value = cum_target[month_idx] if month_idx < len(cum_target) else 0
+                cum_target_sum[month_idx] += cum_target_value
+                
+                cum_actual_value = cum_actual[month_idx] if month_idx < len(cum_actual) else 0
+                cum_actual_sum[month_idx] += cum_actual_value
+        
+        # 转换为元并创建图二格式的数据（保持原始精度）
+        # 数据类型0：已发生金额
+        actual_row = {
+            '数据类型': '已发生金额',
+            '1月': monthly_actual_sum[0],
+            '2月': monthly_actual_sum[1],
+            '3月': monthly_actual_sum[2],
+            '4月': monthly_actual_sum[3],
+            '5月': monthly_actual_sum[4],
+            '6月': monthly_actual_sum[5],
+            '7月': monthly_actual_sum[6],
+            '8月': monthly_actual_sum[7],
+            '9月': monthly_actual_sum[8],
+            '10月': monthly_actual_sum[9],
+            '11月': monthly_actual_sum[10],
+            '12月': monthly_actual_sum[11]
+        }
+        
+        # 数据类型1：月累已发生金额
+        cum_actual_row = {
+            '数据类型': '月累已发生金额',
+            '1月': cum_actual_sum[0],
+            '2月': cum_actual_sum[1],
+            '3月': cum_actual_sum[2],
+            '4月': cum_actual_sum[3],
+            '5月': cum_actual_sum[4],
+            '6月': cum_actual_sum[5],
+            '7月': cum_actual_sum[6],
+            '8月': cum_actual_sum[7],
+            '9月': cum_actual_sum[8],
+            '10月': cum_actual_sum[9],
+            '11月': cum_actual_sum[10],
+            '12月': cum_actual_sum[11]
+        }
+        
+        # 数据类型2：目标金额
+        target_row = {
+            '数据类型': '目标金额',
+            '1月': monthly_target_sum[0],
+            '2月': monthly_target_sum[1],
+            '3月': monthly_target_sum[2],
+            '4月': monthly_target_sum[3],
+            '5月': monthly_target_sum[4],
+            '6月': monthly_target_sum[5],
+            '7月': monthly_target_sum[6],
+            '8月': monthly_target_sum[7],
+            '9月': monthly_target_sum[8],
+            '10月': monthly_target_sum[9],
+            '11月': monthly_target_sum[10],
+            '12月': monthly_target_sum[11]
+        }
+        
+        # 数据类型3：目标金额累计
+        cum_target_row = {
+            '数据类型': '目标金额累计',
+            '1月': cum_target_sum[0],
+            '2月': cum_target_sum[1],
+            '3月': cum_target_sum[2],
+            '4月': cum_target_sum[3],
+            '5月': cum_target_sum[4],
+            '6月': cum_target_sum[5],
+            '7月': cum_target_sum[6],
+            '8月': cum_target_sum[7],
+            '9月': cum_target_sum[8],
+            '10月': cum_target_sum[9],
+            '11月': cum_target_sum[10],
+            '12月': cum_target_sum[11]
+        }
+        
+        # 按图二格式添加数据行
+        project_data_preview.extend([actual_row, cum_actual_row, target_row, cum_target_row])
+        
+        if project_data_preview:
+            export_data['项目数据表格预览'] = project_data_preview
+        
+        return export_data
+        
+    except Exception as e:
+        st.error(f"创建多项目汇总数据导出表格时出错: {e}")
+        return {}
+
+def create_data_summary_tables(all_main_dfs, all_tertiary_dfs, include_self_owned_labor=False):
+    """
+    创建多项目数据汇总表格（可供二次分析区块项目）
+    包含4主要费项费项月累成本使用情况、4-1主要费项费项月累成本使用情况和三级费项月累表格的累加数据
+    
+    Args:
+        all_main_dfs: 所有项目的主要费项DataFrame字典
+        all_tertiary_dfs: 所有项目的三级费项DataFrame字典
+        include_self_owned_labor: 是否包含自有人工成本
+    
+    Returns:
+        dict: 包含三个汇总表格的字典
+    """
+    try:
+        if not all_main_dfs or not all_tertiary_dfs:
+            return {}
+        
+        # 确定主要费项表格名称
+        main_sheet_name_4 = '4主要费项费项月累成本使用情况'
+        main_sheet_name_4_1 = '4-1主要费项费项月累成本使用情况'
+        tertiary_sheet_name = '三级费项月累表格'
+        
+        # 初始化累加数据
+        main_merged_df_4 = None
+        main_merged_df_4_1 = None
+        tertiary_merged_df = None
+        
+        # 累加主要费项数据（4表格）
+        for project_name, main_df in all_main_dfs.items():
+            if main_df is not None and not main_df.empty:
+                if main_merged_df_4 is None:
+                    # 第一次，直接复制整个DataFrame以保持原始格式
+                    main_merged_df_4 = main_df.copy()
+                    # 识别数值列（用于累加）和非数值列（保持原始值）
+                    numeric_columns = main_merged_df_4.select_dtypes(include=[np.number]).columns
+                    # 对于非数值列，保持原始值（如费项名称、单位等）
+                    # 对于数值列，保持原始值（第一次复制）
+                else:
+                    # 后续项目，只累加数值列，保持非数值列不变
+                    numeric_columns = main_df.select_dtypes(include=[np.number]).columns
+                    for col in numeric_columns:
+                        if col in main_merged_df_4.columns:
+                            # 安全地累加数值，处理NaN值
+                            current_values = main_merged_df_4[col].fillna(0)
+                            new_values = main_df[col].fillna(0)
+                            main_merged_df_4[col] = current_values + new_values
+        
+        # 累加主要费项数据（4-1表格）
+        for project_name, main_df in all_main_dfs.items():
+            if main_df is not None and not main_df.empty:
+                if main_merged_df_4_1 is None:
+                    # 第一次，直接复制整个DataFrame以保持原始格式
+                    main_merged_df_4_1 = main_df.copy()
+                    # 识别数值列（用于累加）和非数值列（保持原始值）
+                    numeric_columns = main_merged_df_4_1.select_dtypes(include=[np.number]).columns
+                    # 对于非数值列，保持原始值（如费项名称、单位等）
+                    # 对于数值列，保持原始值（第一次复制）
+                else:
+                    # 后续项目，只累加数值列，保持非数值列不变
+                    numeric_columns = main_df.select_dtypes(include=[np.number]).columns
+                    for col in numeric_columns:
+                        if col in main_merged_df_4_1.columns:
+                            # 安全地累加数值，处理NaN值
+                            current_values = main_merged_df_4_1[col].fillna(0)
+                            new_values = main_df[col].fillna(0)
+                            main_merged_df_4_1[col] = current_values + new_values
+        
+        # 累加三级费项数据
+        for project_name, tertiary_df in all_tertiary_dfs.items():
+            if tertiary_df is not None and not tertiary_df.empty:
+                if tertiary_merged_df is None:
+                    # 第一次，直接复制整个DataFrame以保持原始格式
+                    tertiary_merged_df = tertiary_df.copy()
+                    # 识别数值列（用于累加）和非数值列（保持原始值）
+                    numeric_columns = tertiary_merged_df.select_dtypes(include=[np.number]).columns
+                    # 对于非数值列，保持原始值（如费项名称、单位等）
+                    # 对于数值列，保持原始值（第一次复制）
+                else:
+                    # 后续项目，只累加数值列，保持非数值列不变
+                    numeric_columns = tertiary_df.select_dtypes(include=[np.number]).columns
+                    for col in numeric_columns:
+                        if col in tertiary_merged_df.columns:
+                            # 安全地累加数值，处理NaN值
+                            current_values = tertiary_merged_df[col].fillna(0)
+                            new_values = tertiary_df[col].fillna(0)
+                            tertiary_merged_df[col] = current_values + new_values
+        
+        # 准备返回数据
+        summary_tables = {}
+        
+        # 同时返回4和4-1两张主要费项表格
+        if main_merged_df_4 is not None:
+            summary_tables[main_sheet_name_4] = main_merged_df_4
+        
+        if main_merged_df_4_1 is not None:
+            summary_tables[main_sheet_name_4_1] = main_merged_df_4_1
+        
+        if tertiary_merged_df is not None:
+            summary_tables[tertiary_sheet_name] = tertiary_merged_df
+        
+        return summary_tables
+        
+    except Exception as e:
+        st.error(f"创建数据汇总表格时出错: {e}")
+        return {}

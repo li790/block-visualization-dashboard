@@ -531,7 +531,7 @@ def render_anomaly_section(anomalies, project_name=None, all_data=None, month=No
             else:
                 st.info("暂无三级费项异常数据")
 
-def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor):
+def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor, export_file_prefix=None):
     """渲染多项目对比分析"""
     # 确保month是整数类型
     month = int(month) if isinstance(month, str) else month
@@ -609,7 +609,7 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
                 st.download_button(
                     label="📥 下载项目汇总表",
                     data=excel_data,
-                    file_name="项目汇总表.xlsx",
+                    file_name=f"{export_file_prefix or '项目汇总表'}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="download_excel_multi",
                     help="下载所有项目的汇总数据表，而不是拼接表"
@@ -936,7 +936,7 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
             st.error(f"创建图表时出错: {e}")
             st.warning("没有找到二级费项数据")
 
-def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor=False):
+def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor=False, export_file_prefix=None):
     """渲染主仪表盘"""
     # 确保month是整数类型
     month = int(month) if isinstance(month, str) else month
@@ -957,7 +957,7 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_se
         render_single_project_analysis(project_name, data, month)
     else:
         # 多项目模式：显示项目对比分析
-        render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor)
+        render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor, export_file_prefix)
     
     # 添加客户下载表格功能 - 移到最后
     st.markdown("---")
@@ -1101,7 +1101,7 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_se
                 st.download_button(
                     label="📥 下载多项目汇总数据 (Excel)",
                     data=file.read(),
-                    file_name=f"多项目汇总数据_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"{export_file_prefix or '多项目汇总数据'}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     help="下载包含多项目汇总数据的Excel表格，包含12个工作表"
                 )
@@ -1134,7 +1134,7 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_se
                     st.download_button(
                         label="📥 下载数据汇总表格 (Excel)",
                         data=file.read(),
-                        file_name=f"数据汇总表格_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        file_name=f"{export_file_prefix or '数据汇总表格'}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         help="下载包含多项目4主要费项、4-1主要费项和三级费项月累表格累加数据的Excel表格"
                     )

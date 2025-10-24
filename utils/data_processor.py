@@ -7,6 +7,52 @@ from io import BytesIO
 import time
 import hashlib
 from utils.cache_manager import get_cache_manager
+def precompute_project_all_months(main_df, project_name, include_self_owned_labor=False):
+    """预计算单项目1..12月分析结果，写入内存缓存。
+    返回 {month:int -> analysis:dict}
+    """
+    cache_manager = get_cache_manager()
+    # 统一包缓存键（month=0 仅作命名占位）
+    package_key = f"project_all_months_{project_name}_{include_self_owned_labor}"
+    cached = cache_manager.get_analysis_cache(package_key, project_name, 0, include_self_owned_labor)
+    if isinstance(cached, dict) and cached:
+        return cached
+
+    results = {}
+    for m in range(1, 13):
+        try:
+            data = process_excel_data(main_df, m, project_name, include_self_owned_labor)
+            if data:
+                results[m] = data
+        except Exception:
+            continue
+
+    # 保存整包
+    try:
+        cache_manager.save_analysis_cache(package_key, project_name, 0, results, include_self_owned_labor)
+    except Exception:
+        pass
+    return results
+
+# 控制是否显示三级费项列数不足的提示（默认不显示）
+SHOW_TERTIARY_COL_WARNING = False
+
+def clean_columns(df: pd.DataFrame, drop_all_empty: bool = True) -> pd.DataFrame:
+    """标准化并清洗列：
+    - 将列名转换为字符串并去除首尾空格
+    - 移除以"Unnamed"开头的列（多为空表头列）
+    - 可选：移除全为空值的列（默认True）
+    """
+    if df is None or df.empty:
+        return df
+    cleaned = df.copy()
+    cleaned.columns = cleaned.columns.map(lambda c: str(c).strip())
+    # 删除Unnamed列
+    cleaned = cleaned.loc[:, ~cleaned.columns.str.startswith("Unnamed")]
+    # 删除全空列（可选）
+    if drop_all_empty:
+        cleaned = cleaned.dropna(axis=1, how="all")
+    return cleaned
 
 def extract_table_from_excel(file, include_self_owned_labor=False):
     """从Excel文件中提取工作表的数据:
@@ -68,6 +114,7 @@ def extract_table_from_excel(file, include_self_owned_labor=False):
             if include_self_owned_labor and '4主要费项' in actual_sheet and '4-1' not in actual_sheet:
                 try:
                     main_df = xl.parse(actual_sheet).head(39)
+                    main_df = clean_columns(main_df, drop_all_empty=True)
                     found_sheet_name = actual_sheet
                     break
                 except Exception as e:
@@ -75,6 +122,7 @@ def extract_table_from_excel(file, include_self_owned_labor=False):
             elif not include_self_owned_labor and '4-1主要费项' in actual_sheet:
                 try:
                     main_df = xl.parse(actual_sheet).head(39)
+                    main_df = clean_columns(main_df, drop_all_empty=True)
                     found_sheet_name = actual_sheet
                     break
                 except Exception as e:
@@ -98,6 +146,7 @@ def extract_table_from_excel(file, include_self_owned_labor=False):
                 if exact_match and found_sheet_name:
                     try:
                         main_df = xl.parse(found_sheet_name).head(39)
+                        main_df = clean_columns(main_df, drop_all_empty=True)
                         break
                     except Exception as e:
                         continue
@@ -111,11 +160,32 @@ def extract_table_from_excel(file, include_self_owned_labor=False):
         tertiary_df = None
         for sheet in tertiary_sheets_to_try:
             if sheet in xl.sheet_names:
+                # 仅读取前153行
                 tertiary_df = xl.parse(sheet).head(153)
+                # 清洗列名但保留以 Unnamed 开头的列（可能是有效月份列，表头为空）
+                if tertiary_df is not None:
+                    df_tmp = tertiary_df.copy()
+                    df_tmp.columns = [str(c).strip() for c in df_tmp.columns]
+                    tertiary_df = df_tmp
                 break
         
+        # 如果未命中预设名称，增加模糊匹配：包含"三级"且（包含"费项"或"月累"）的工作表
         if tertiary_df is None:
-            st.error(f"文件中未找到三级费项工作表，尝试了: {', '.join(tertiary_sheets_to_try)}")
+            for actual_sheet in xl.sheet_names:
+                name = str(actual_sheet).strip()
+                if ("三级" in name) and ("费项" in name or "月累" in name):
+                    try:
+                        tertiary_df = xl.parse(actual_sheet).head(153)
+                        if tertiary_df is not None:
+                            df_tmp = tertiary_df.copy()
+                            df_tmp.columns = [str(c).strip() for c in df_tmp.columns]
+                            tertiary_df = df_tmp
+                        break
+                    except Exception:
+                        continue
+        
+        if tertiary_df is None:
+            st.error(f"文件中未找到三级费项工作表，尝试了: {', '.join(tertiary_sheets_to_try)}，并进行了模糊匹配（包含'三级'且包含'费项'或'月累'）")
             st.error(f"文件中实际存在的工作表: {', '.join(xl.sheet_names)}")
             return None, None
         
@@ -593,8 +663,13 @@ def create_summary_excel(all_dfs):
     if not all_dfs:
         return None
     
+    # 先对传入的各DataFrame进行列清洗
+    cleaned_dfs = {}
+    for k, v in all_dfs.items():
+        cleaned_dfs[k] = clean_columns(v)
+    
     # 获取第一个DataFrame作为模板
-    first_df = list(all_dfs.values())[0]
+    first_df = list(cleaned_dfs.values())[0]
     
     # 创建新的汇总DataFrame，保持相同的结构
     summary_df = first_df.copy()
@@ -638,11 +713,14 @@ def create_summary_excel(all_dfs):
         }
     
     # 第二步：对关键行进行专门的求和处理，并对其他行进行正常合并
-    for project_name, df in all_dfs.items():
+    for project_name, df in cleaned_dfs.items():
         key_rows = project_key_rows[project_name]
         
         for col in df.columns:
             if col not in [df.columns[0], df.columns[1]]:  # 跳过前两列
+                # 若模板中不存在该列，则跳过，避免KeyError
+                if col not in summary_df.columns:
+                    continue
                 # 确保数据类型为数值型
                 numeric_data = pd.to_numeric(df[col], errors='coerce').fillna(0)
                 
@@ -679,159 +757,158 @@ def process_tertiary_fee_data(df, month, project_name=None, include_self_owned_l
         max_columns = df.shape[1]
         
         # 根据实际表格结构：数据列从第3列开始（索引2），对应1-12月
-        min_required_columns = 14  # 至少需要14列（费项编码 + 数据类型 + 12个月数据）
+        min_required_columns = 13
         if max_columns < min_required_columns:
-            st.error(f"三级费项表格列数不足，仅找到{max_columns}列，需要至少{min_required_columns}列")
+            # 列数确实不足时返回空（静默）
             return {'tertiary_fee_items': [], 'exceptions': []}
         
-        # 数据列范围：第3列到第14列（索引2-13），对应1-12月
-        data_columns = list(range(2, min(14, max_columns)))
+        # 数据列范围：从第3列开始一直到最后一列（索引2..max_columns-1），自适应可用月份
+        data_columns = list(range(2, max_columns))
         
-        # 用于存储每个费项的4行数据
-        fee_data = {}
+        # 关键字集合（放宽匹配）
+        def _has_any(text: str, keywords: list[str]) -> bool:
+            t = str(text) if text is not None else ""
+            return any(k in t for k in keywords)
+        ACTUAL_KEYS = ["已发生金额", "已发生成本", "已发生"]
+        TARGET_KEYS = ["目标金额", "目标成本", "目标"]
+        CUM_KEYS = ["累计", "月累"]
         
-        # 第一遍扫描：收集每个费项的所有数据
-        current_fee_code = None
-        current_fee_data = {}
+        # 从第一列提取三级编码（容错：可能带名称，如"1.1.1 人工服务"）
+        import re
+        def _extract_fee_code(value: str) -> str | None:
+            s = str(value).strip()
+            m = re.search(r"(\d+\.\d+\.\d+)", s)
+            return m.group(1) if m else None
+        
+        # 存储每个费项的行数据（可能缺失月/累其一，后续补齐）
+        fee_data: dict[str, dict] = {}
         
         for idx, row in df.iterrows():
-            # 第一列是费项编码
-            fee_code = str(row.iloc[0]).strip()
+            raw_first = row.iloc[0] if len(row) > 0 else ""
+            raw_second = row.iloc[1] if len(row) > 1 else ""
+            fee_code = _extract_fee_code(raw_first)
+            if not fee_code:
+                continue
+            second_col = str(raw_second).strip()
+            # 提取该行的数据（自适应月份列）
+            row_data = []
+            for col in data_columns:
+                try:
+                    cell_value = row.iloc[col]
+                    # 避免把表头文本误作数值
+                    if isinstance(cell_value, str) and (_has_any(cell_value, ACTUAL_KEYS) or _has_any(cell_value, TARGET_KEYS)):
+                        val = 0
+                    else:
+                        val = float(cell_value) if pd.notna(cell_value) else 0
+                    row_data.append(val)
+                except Exception:
+                    row_data.append(0)
             
-            # 检查是否是有效的三级费项编码
-            if len(fee_code.split('.')) == 3 and fee_code.replace('.', '').isdigit():
-                # 新的费项编码
-                if current_fee_code and current_fee_code != fee_code:
-                    # 保存前一个费项的数据
-                    if len(current_fee_data) == 4:  # 确保有完整的4行数据
-                        fee_data[current_fee_code] = current_fee_data
-                    current_fee_data = {}
-                
-                current_fee_code = fee_code
-                second_col = str(row.iloc[1]).strip()
-                
-                # 提取该行的数据
-                row_data = []
-                for col in data_columns:
-                    try:
-                        cell_value = row.iloc[col]
-                        if isinstance(cell_value, str) and ('已发生金额' in cell_value or '目标金额' in cell_value):
-                            val = 0
-                        else:
-                            val = float(cell_value) if pd.notna(cell_value) else 0
-                        row_data.append(val)
-                    except ValueError:
-                        row_data.append(0)
-                
-                # 根据第二列内容确定数据类型
-                if '已发生金额' in second_col and '累计' not in second_col:
-                    current_fee_data['monthly_actual'] = row_data
-                elif '已发生金额' in second_col and '累计' in second_col:
-                    current_fee_data['cum_actual'] = row_data
-                elif '目标金额' in second_col and '累计' not in second_col:
-                    current_fee_data['monthly_target'] = row_data
-                elif '目标金额' in second_col and '累计' in second_col:
-                    current_fee_data['cum_target'] = row_data
+            entry = fee_data.setdefault(fee_code, {})
+            # 分类：目标/已发生 × 月/累计
+            is_actual = _has_any(second_col, ACTUAL_KEYS)
+            is_target = _has_any(second_col, TARGET_KEYS)
+            is_cum = _has_any(second_col, CUM_KEYS)
+            if is_actual and not is_cum:
+                entry['monthly_actual'] = row_data
+            elif is_actual and is_cum:
+                entry['cum_actual'] = row_data
+            elif is_target and not is_cum:
+                entry['monthly_target'] = row_data
+            elif is_target and is_cum:
+                entry['cum_target'] = row_data
         
-        # 保存最后一个费项的数据
-        if current_fee_code and len(current_fee_data) == 4:
-            fee_data[current_fee_code] = current_fee_data
+        # 辅助函数：用累计推月度、用月度推累计
+        import numpy as _np
+        def _to_cum(arr: list[float]) -> list[float]:
+            return _np.cumsum(_np.array(arr, dtype=float)).tolist()
+        def _to_monthly_from_cum(arr: list[float]) -> list[float]:
+            a = _np.array(arr, dtype=float)
+            diffs = _np.diff(_np.insert(a, 0, 0.0))
+            return diffs.tolist()
         
-        # 第二遍扫描：处理数据并检测异常
+        # 第二遍：补齐缺失数据并检测异常
         for fee_code, data in fee_data.items():
             try:
-                # 补全费项类别名称
+                # 名称用映射表补全
                 fee_name = 补全费项类别(fee_code)
+                monthly_target = data.get('monthly_target')
+                monthly_actual = data.get('monthly_actual')
+                cum_target = data.get('cum_target')
+                cum_actual = data.get('cum_actual')
                 
-                # 获取各种数据
-                monthly_target = data.get('monthly_target', [0] * 12)
-                monthly_actual = data.get('monthly_actual', [0] * 12)
-                cum_target = data.get('cum_target', [0] * 12)
-                cum_actual = data.get('cum_actual', [0] * 12)
+                # 互补：缺累 -> 由月度累加；缺月 -> 由累差分
+                if cum_target is None and monthly_target is not None:
+                    cum_target = _to_cum(monthly_target)
+                if cum_actual is None and monthly_actual is not None:
+                    cum_actual = _to_cum(monthly_actual)
+                if monthly_target is None and cum_target is not None:
+                    monthly_target = _to_monthly_from_cum(cum_target)
+                if monthly_actual is None and cum_actual is not None:
+                    monthly_actual = _to_monthly_from_cum(cum_actual)
                 
-                # 确保数据长度一致
-                min_length = min(len(monthly_target), len(monthly_actual), len(cum_target), len(cum_actual))
-                monthly_target = monthly_target[:min_length]
-                monthly_actual = monthly_actual[:min_length]
-                cum_target = cum_target[:min_length]
-                cum_actual = cum_actual[:min_length]
+                # 若仍缺关键数据，跳过该费项
+                if cum_target is None or cum_actual is None:
+                    continue
                 
-                # 年总目标（12月份累计目标）
+                # 统一长度
+                min_len = min(len(cum_target), len(cum_actual))
+                cum_target = cum_target[:min_len]
+                cum_actual = cum_actual[:min_len]
+                if monthly_target is not None:
+                    monthly_target = monthly_target[:min_len]
+                if monthly_actual is not None:
+                    monthly_actual = monthly_actual[:min_len]
+                
+                # 年总目标（最后一个累计目标）
                 year_target = cum_target[-1] if len(cum_target) > 0 else 0
-                
-                # 当前月份数据
                 current_target = cum_target[month-1] if month-1 < len(cum_target) else 0
                 current_actual = cum_actual[month-1] if month-1 < len(cum_actual) else 0
                 
-                # 数据验证：即使年度目标为0也进行统计
-                if year_target == 0:
-                    # 年度目标为0时，仍然添加到统计中，但不单独添加到异常列表
-                    tertiary_fee_items.append({
-                        'code': fee_code,
-                        'name': fee_name,
-                        'cum_target': current_target,
-                        'cum_actual': current_actual,
-                        'monthly_data': {
-                            'target': monthly_target,
-                            'actual': monthly_actual,
-                            'cum_target': cum_target,
-                            'cum_actual': cum_actual
-                        }
-                    })
-                    # 继续执行异常检测逻辑，如果触发红色或黄色异常才会添加到异常列表
-                
+                # 收集项目数据
                 tertiary_fee_items.append({
                     'code': fee_code,
                     'name': fee_name,
                     'cum_target': current_target,
                     'cum_actual': current_actual,
                     'monthly_data': {
-                        'target': monthly_target,
-                        'actual': monthly_actual,
+                        'target': monthly_target or [0]*min_len,
+                        'actual': monthly_actual or [0]*min_len,
                         'cum_target': cum_target,
                         'cum_actual': cum_actual
                     }
                 })
                 
-                # 异常检测 - 检查到当前选择的月份
+                # 异常检测：检查到所选月份
                 for m in range(1, month+1):
-                    # 确保索引在有效范围内
                     if m-1 >= len(cum_target) or m-1 >= len(cum_actual):
                         continue
-                        
-                    m_target = cum_target[m-1]
-                    m_actual = cum_actual[m-1]
-                    
-                    exception_type = None
-                    # 红色异常：累计已发生金额超过年度总目标
-                    if m_actual > year_target:
-                        exception_type = 'red'
-                    # 黄色异常：累计已发生金额超过该月累计目标
+                    m_target = float(cum_target[m-1])
+                    m_actual = float(cum_actual[m-1])
+                    ex_type = None
+                    if m_actual > float(year_target):
+                        ex_type = 'red'
                     elif m_actual > m_target:
-                        exception_type = 'yellow'
-                    
-                    if exception_type:
+                        ex_type = 'yellow'
+                    if ex_type:
                         exceptions.append({
                             'fee_code': fee_code,
                             'fee_name': fee_name,
                             'month': m,
-                            'exception_type': exception_type,
+                            'exception_type': ex_type,
                             'cum_actual': m_actual,
                             'cum_target': m_target,
-                            'year_target': year_target
+                            'year_target': float(year_target)
                         })
-                        
             except Exception as e:
                 st.warning(f"处理三级费项 {fee_code} 时出错: {e}")
                 continue
         
-        # 添加异常信息到返回结果
         result = {
             'tertiary_fee_items': tertiary_fee_items,
             'exceptions': exceptions
         }
         
-        # 保存到缓存
         if project_name:
             cache_manager = get_cache_manager()
             cache_manager.save_anomaly_cache(project_name, month, result, include_self_owned_labor)
@@ -841,6 +918,7 @@ def process_tertiary_fee_data(df, month, project_name=None, include_self_owned_l
         st.error(f"处理三级费项数据时出错: {e}")
         return {'tertiary_fee_items': [], 'exceptions': []}
 
+@st.cache_data(ttl=86400, show_spinner=False)
 def merge_project_data(all_data, all_main_dfs, month, include_self_owned_labor=False):
     """合并多个项目的数据并计算合并后的关键指标，支持缓存"""
     if not all_data or not all_main_dfs:
@@ -952,6 +1030,9 @@ def merge_project_data(all_data, all_main_dfs, month, include_self_owned_labor=F
     
     return merged_data 
 
+import streamlit as st
+
+@st.cache_data(ttl=86400, show_spinner=False)
 def create_monthly_fee_summary(all_dfs):
     """创建每月费项汇总表 - 统计所有项目每月各项费项合计的已发生成本和目标成本"""
     if not all_dfs:
@@ -1011,10 +1092,11 @@ def create_monthly_fee_summary(all_dfs):
     
     # 转换为DataFrame
     months = sorted(monthly_data.keys())
+    # 输出单位统一为“万元”。下游图表不再重复除以10000。
     data = {
         '月份': [f'{m}月' for m in months],
-        '目标成本': [monthly_data[m]['target']/10000 for m in months],  # 转换为万元
-        '已发生成本': [monthly_data[m]['actual']/10000 for m in months]  # 转换为万元
+        '目标成本': [monthly_data[m]['target']/10000 for m in months],
+        '已发生成本': [monthly_data[m]['actual']/10000 for m in months]
     }
     
     # 移除调试信息
@@ -1153,6 +1235,7 @@ def create_client_download_table(all_dfs, all_data):
     
     return result_df
 
+@st.cache_data(ttl=86400, show_spinner=False)
 def create_secondary_fee_overall_data(all_main_dfs, month=None, include_self_owned_labor=False):
     """创建二级费项整体数据，用于组合图表展示，支持缓存
     
@@ -1242,6 +1325,26 @@ def create_secondary_fee_overall_data(all_main_dfs, month=None, include_self_own
             target_data = None
             actual_data = None
             
+            # 简单判断序列是否为累计值并倒推为单月
+            def is_cumulative_series(arr: np.ndarray) -> bool:
+                try:
+                    if arr is None:
+                        return False
+                    # 非降序且至少存在两个月份有正增长，视为累计
+                    diffs = np.diff(arr)
+                    return np.all(diffs >= -1e-6) and np.count_nonzero(diffs > 1e-6) >= 2
+                except Exception:
+                    return False
+
+            def to_monthly_from_possible_cum(arr: np.ndarray) -> np.ndarray:
+                if arr is None:
+                    return None
+                if is_cumulative_series(arr):
+                    # 用差分还原单月值
+                    monthly = np.diff(np.insert(arr, 0, 0.0))
+                    return monthly
+                return arr
+
             # 查找目标金额数据
             for idx, row in df.iterrows():
                 first_col = str(row.iloc[0]).strip()
@@ -1254,9 +1357,11 @@ def create_secondary_fee_overall_data(all_main_dfs, month=None, include_self_own
                     try:
                         raw = df.iloc[idx, 2:14].values  # 1-12月
                         # 确保数据类型正确（容错千分位/中文符号）
-                        target_data = to_float_array(raw)
+                        target_arr = to_float_array(raw)
+                        # 若为累计序列，倒推出单月目标
+                        target_data = to_monthly_from_possible_cum(target_arr)
                         if fee_name == "物耗成本" or "物耗" in fee_name:
-                            print(f"物耗成本目标数据: {target_data}")
+                            print(f"物耗成本目标数据(单月推导后): {target_data}")
                     except Exception as e:
                         print(f"处理目标金额数据时出错: {e}")
                         target_data = None
@@ -1274,9 +1379,11 @@ def create_secondary_fee_overall_data(all_main_dfs, month=None, include_self_own
                     try:
                         raw = df.iloc[idx, 2:14].values  # 1-12月
                         # 确保数据类型正确（容错千分位/中文符号）
-                        actual_data = to_float_array(raw)
+                        actual_arr = to_float_array(raw)
+                        # 若为累计序列，倒推出单月已发生
+                        actual_data = to_monthly_from_possible_cum(actual_arr)
                         if fee_name == "物耗成本" or "物耗" in fee_name:
-                            print(f"物耗成本已发生数据: {actual_data}")
+                            print(f"物耗成本已发生数据(单月推导后): {actual_data}")
                     except Exception as e:
                         print(f"处理已发生金额数据时出错: {e}")
                         actual_data = None
@@ -1288,7 +1395,7 @@ def create_secondary_fee_overall_data(all_main_dfs, month=None, include_self_own
             if actual_data is None:
                 actual_data = np.zeros(12, dtype=float)
 
-            # 计算累计数据
+            # 计算累计数据（基于单月值累计）
             cum_target = np.cumsum(target_data)
             cum_actual = np.cumsum(actual_data)
 
@@ -1860,6 +1967,7 @@ def create_comprehensive_summary_table(all_data, all_main_dfs, all_tertiary_dfs,
         st.error(f"创建综合汇总表格时出错: {e}")
         return pd.DataFrame()
 
+@st.cache_data(ttl=86400, show_spinner=False)
 def create_multi_project_export_data(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor=False):
     """创建多项目汇总数据导出表格，包含用户当前选择月份的多项目合并指标数据
     
@@ -2345,6 +2453,7 @@ def create_multi_project_export_data(all_data, all_main_dfs, all_tertiary_dfs, m
         st.error(f"创建多项目汇总数据导出表格时出错: {e}")
         return {}
 
+@st.cache_data(ttl=86400, show_spinner=False)
 def create_data_summary_tables(all_main_dfs, all_tertiary_dfs, include_self_owned_labor=False):
     """
     创建多项目数据汇总表格（可供二次分析区块项目）
@@ -2361,6 +2470,19 @@ def create_data_summary_tables(all_main_dfs, all_tertiary_dfs, include_self_owne
     try:
         if not all_main_dfs or not all_tertiary_dfs:
             return {}
+        
+        # 尝试从缓存获取汇总表格数据
+        cache_manager = get_cache_manager()
+        
+        # 生成缓存键，基于项目列表和参数
+        project_list = sorted(list(all_main_dfs.keys()))
+        cache_key_data = f"summary_tables_{str(project_list)}_{include_self_owned_labor}"
+        cache_key = hashlib.md5(cache_key_data.encode()).hexdigest()
+        
+        # 检查缓存
+        cached_data = cache_manager.get_analysis_cache("summary_tables", cache_key, 0, include_self_owned_labor)
+        if cached_data:
+            return cached_data
         
         # 确定主要费项表格名称
         main_sheet_name_4 = '4主要费项费项月累成本使用情况'
@@ -2444,6 +2566,10 @@ def create_data_summary_tables(all_main_dfs, all_tertiary_dfs, include_self_owne
         
         if tertiary_merged_df is not None:
             summary_tables[tertiary_sheet_name] = tertiary_merged_df
+        
+        # 保存到缓存
+        if summary_tables:
+            cache_manager.save_analysis_cache("summary_tables", cache_key, summary_tables, include_self_owned_labor)
         
         return summary_tables
         

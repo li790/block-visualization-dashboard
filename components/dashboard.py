@@ -4,6 +4,14 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 import os
+
+# 定义SVG图标
+CHART_ICON = """
+<svg t="1758768181220" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="1621" width="20" height="20" style="display: inline-block; vertical-align: middle; margin-right: 8px;">
+    <path d="M532.15763 144.004741a75.851852 75.851852 0 0 1 75.851851 75.851852v440.301037a75.851852 75.851852 0 0 1-75.851851 75.851851H491.861333a75.851852 75.851852 0 0 1-75.851852-75.851851V219.856593a75.851852 75.851852 0 0 1 75.851852-75.851852h40.296297z m256 111.995259a75.851852 75.851852 0 0 1 75.851851 75.851852V660.176593a75.851852 75.851852 0 0 1-75.851851 75.851851H747.861333a75.851852 75.851852 0 0 1-75.851852-75.851851V331.851852a75.851852 75.851852 0 0 1 75.851852-75.851852h40.296297z m-512 112.014222a75.851852 75.851852 0 0 1 75.851851 75.851852v216.291556a75.851852 75.851852 0 0 1-75.851851 75.851851H235.861333a75.851852 75.851852 0 0 1-75.851852-75.851851V443.847111a75.851852 75.851852 0 0 1 75.851852-75.851852h40.296297z" fill="#279CFF" p-id="1622"></path>
+    <path d="M160.009481 816.014222m32.009482 0l639.981037 0q32.009481 0 32.009481 32.009482l0-0.018963q0 32.009481-32.009481 32.009481l-639.981037 0q-32.009481 0-32.009482-32.009481l0 0.018963q0-32.009481 32.009482-32.009482Z" fill="#279CFF" fill-opacity=".5" p-id="1623"></path>
+</svg>
+"""
 from utils.chart_creator import (
     create_pie_chart, 
     create_bar_line_chart, 
@@ -171,7 +179,7 @@ def render_single_project_analysis(project_name, data, month, show_details=True)
     month = int(month) if isinstance(month, str) else month
     # 只有在需要显示详细信息时才显示标题
     if show_details:
-        st.subheader(f"📊 {project_name} 详细分析")
+        st.markdown(f"<h3 style='display: flex; align-items: center; margin: 0;'>{CHART_ICON} {project_name} 详细分析</h3>", unsafe_allow_html=True)
         
         # 项目详细信息 - 显示甜甜圈图
         st.markdown("#### 项目进度指标")
@@ -321,8 +329,8 @@ def render_single_project_analysis(project_name, data, month, show_details=True)
                 line_chart.data[1].visible = False
             
             # 上下排列显示图表 - 总成本累计趋势在上，二级费项累计对比在下
-            st.plotly_chart(line_chart, use_container_width=True, height=300, key=f"line_chart_single_{project_name}")
-            st.plotly_chart(bar_chart, use_container_width=True, height=300, key=f"bar_chart_single_{project_name}")
+            st.plotly_chart(line_chart, use_container_width=True, height=400, key=f"line_chart_single_{project_name}")
+            st.plotly_chart(bar_chart, use_container_width=True, height=400, key=f"bar_chart_single_{project_name}")
         else:
             st.warning("没有找到二级费项数据")
     except Exception as e:
@@ -470,7 +478,7 @@ def render_anomaly_section(anomalies, project_name=None, all_data=None, month=No
                 # 添加异常明细下载按钮
                 csv = df.to_csv(index=False, encoding='utf-8-sig')
                 st.download_button(
-                    label="📥 下载主控费项异常明细",
+                    label="下载主控费项异常明细",
                     data=csv,
                     file_name=f"主控费项异常明细_{selected_month}月.csv",
                     mime="text/csv",
@@ -522,7 +530,7 @@ def render_anomaly_section(anomalies, project_name=None, all_data=None, month=No
                 # 添加下载按钮
                 csv = exception_df.to_csv(index=False, encoding='utf-8-sig')
                 st.download_button(
-                    label="📥 下载三级费项异常明细",
+                    label="下载三级费项异常明细",
                     data=csv,
                     file_name=f"三级费项异常明细_{selected_month if all_months else month}月.csv",
                     mime="text/csv",
@@ -531,7 +539,7 @@ def render_anomaly_section(anomalies, project_name=None, all_data=None, month=No
             else:
                 st.info("暂无三级费项异常数据")
 
-def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor):
+def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor, export_file_prefix=None):
     """渲染多项目对比分析"""
     # 确保month是整数类型
     month = int(month) if isinstance(month, str) else month
@@ -545,7 +553,7 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
         st.plotly_chart(bar_chart, use_container_width=True, key="monthly_fee_bar_line_chart")
         csv = monthly_fee_df.to_csv(index=False, encoding='utf-8-sig')
         st.download_button(
-            label="📥 下载每月费项汇总表",
+            label="下载每月费项汇总表",
             data=csv,
             file_name="每月费项成本汇总.csv",
             mime="text/csv",
@@ -554,9 +562,9 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
     else:
         st.info("没有找到可用的费项数据")
 
-    st.subheader(" 项目对比分析")
+    st.markdown(f"<h3 style='display: flex; align-items: center; margin: 0;'> 项目对比分析</h3>", unsafe_allow_html=True)
     # 项目使用率对比图（含月累折线）
-    st.plotly_chart(create_project_comparison_chart(all_data, month), use_container_width=True, key="project_comparison_chart")
+    st.plotly_chart(create_project_comparison_chart(all_data, month), use_container_width=True, key="project_comparison_chart", height=680)
     
     # 详细指标对比表
     st.subheader(" 详细指标对比")
@@ -587,7 +595,7 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
         # 下载月度汇总表（CSV格式）
         csv = df_comparison.to_csv(index=False, encoding='utf-8-sig')
         st.download_button(
-            label="📥 下载月度汇总表",
+            label="下载月度汇总表",
             data=csv,
             file_name=f"项目汇总_{month}月.csv",
             mime="text/csv",
@@ -607,9 +615,9 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
                 excel_data = output.getvalue()
                 
                 st.download_button(
-                    label="📥 下载项目汇总表",
+                    label="下载项目汇总表",
                     data=excel_data,
-                    file_name="项目汇总表.xlsx",
+                    file_name=f"{export_file_prefix or '项目汇总表'}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="download_excel_multi",
                     help="下载所有项目的汇总数据表，而不是拼接表"
@@ -664,7 +672,7 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
                     df_chart = pd.DataFrame(chart_data)
                     csv = df_chart.to_csv(index=False, encoding='utf-8-sig')
                     st.download_button(
-                        label=f"📥 下载{selected_fee}整体数据",
+                        label=f"下载{selected_fee}整体数据",
                         data=csv,
                         file_name=f"{selected_fee}_整体分析数据.csv",
                         mime="text/csv",
@@ -725,7 +733,7 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
     
     # 添加项目选择下拉框和详细图表
     st.divider()
-    st.subheader("📈 项目详细分析")
+    st.markdown(f"<h3 style='display: flex; align-items: center; margin: 0;'> 项目详细分析</h3>", unsafe_allow_html=True)
     
     # 项目选择下拉框
     project_names = list(all_data.keys())
@@ -928,15 +936,15 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
                     line_chart.data[1].visible = False
                 
                 # 上下排列显示图表 - 总成本累计趋势在上，二级费项累计对比在下
-                st.plotly_chart(line_chart, use_container_width=True, height=300, key=f"line_chart_multi_{selected_project}")
-                st.plotly_chart(bar_chart, use_container_width=True, height=300, key=f"bar_chart_multi_{selected_project}")
+                st.plotly_chart(line_chart, use_container_width=True, height=400, key=f"line_chart_multi_{selected_project}")
+                st.plotly_chart(bar_chart, use_container_width=True, height=400, key=f"bar_chart_multi_{selected_project}")
             else:
                 st.warning("没有找到二级费项数据")
         except Exception as e:
             st.error(f"创建图表时出错: {e}")
             st.warning("没有找到二级费项数据")
 
-def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor=False):
+def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor=False, export_file_prefix=None):
     """渲染主仪表盘"""
     # 确保month是整数类型
     month = int(month) if isinstance(month, str) else month
@@ -957,11 +965,11 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_se
         render_single_project_analysis(project_name, data, month)
     else:
         # 多项目模式：显示项目对比分析
-        render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor)
+        render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, month, include_self_owned_labor, export_file_prefix)
     
     # 添加客户下载表格功能 - 移到最后
     st.markdown("---")
-    st.subheader("📥 多项目汇总数据导出")
+    st.subheader("多项目汇总数据导出")
     
     # 检查是否有多个项目
     if len(all_data) > 1:
@@ -976,7 +984,7 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_se
             # 只有在点击预览按钮后才显示数据预览
             if show_preview:
                 # 显示各种汇总数据预览
-                st.markdown("#### 📊 多项目合并指标数据")
+                st.markdown(f"<h4 style='display: flex; align-items: center; margin: 0;'>{CHART_ICON} 多项目合并指标数据</h4>", unsafe_allow_html=True)
                 if '合并指标' in multi_project_data:
                     # 创建合并指标的DataFrame
                     merged_metrics_data = []
@@ -1005,7 +1013,7 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_se
                     st.dataframe(project_comparison_df, use_container_width=True)
                 
                 # 详细指标对比
-                st.markdown("#### 📊 详细指标对比汇总")
+                st.markdown(f"<h4 style='display: flex; align-items: center; margin: 0;'>{CHART_ICON} 详细指标对比汇总</h4>", unsafe_allow_html=True)
                 if '详细指标对比' in multi_project_data:
                     detailed_comparison_df = pd.DataFrame(multi_project_data['详细指标对比'])
                     st.dataframe(detailed_comparison_df, use_container_width=True)
@@ -1050,7 +1058,7 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_se
                     st.dataframe(total_ranking_df, use_container_width=True)
                 
                 # 项目数据表格预览（关键数据合并）
-                st.markdown("#### 📊 项目数据表格预览（多项目累加汇总）")
+                st.markdown(f"<h4 style='display: flex; align-items: center; margin: 0;'>{CHART_ICON} 项目数据表格预览（多项目累加汇总）</h4>", unsafe_allow_html=True)
                 if '项目数据表格预览' in multi_project_data:
                     project_preview_df = pd.DataFrame(multi_project_data['项目数据表格预览'])
                     st.dataframe(project_preview_df, use_container_width=True)
@@ -1058,9 +1066,10 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_se
             # 下载按钮
             st.markdown("#### 下载多项目汇总数据")
             
-            # 创建Excel文件，包含多个工作表
-            output = pd.ExcelWriter('temp_multi_project_summary.xlsx', engine='openpyxl')
-            
+            # 创建Excel文件到内存，包含多个工作表
+            import io
+            output = io.BytesIO()
+
             # 按数据类型分别创建工作表
             sheet_order = [
                 '合并指标', '项目列表', '月度趋势数据', '项目对比分析', 
@@ -1068,40 +1077,35 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_se
                 '二级费项异常排行榜', '三级费项异常排行榜', '综合异常排行榜',
                 '项目数据表格预览'
             ]
-            
-            for sheet_name in sheet_order:
-                if sheet_name in multi_project_data:
-                    data = multi_project_data[sheet_name]
-                    if data:
-                        # 检查数据类型并正确创建DataFrame
-                        try:
-                            if isinstance(data, list) and len(data) > 0:
-                                # 如果是列表，直接创建DataFrame
-                                df = pd.DataFrame(data)
-                            elif isinstance(data, dict):
-                                # 如果是字典，转换为列表格式
-                                df = pd.DataFrame([data])
-                            else:
-                                # 其他情况，跳过
-                                st.warning(f"跳过 {sheet_name}：数据格式不正确")
+            try:
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    for sheet_name in sheet_order:
+                        if sheet_name in multi_project_data:
+                            data = multi_project_data[sheet_name]
+                            if not data:
                                 continue
-                            
-                            # 清理工作表名称（Excel限制31字符）
-                            excel_sheet_name = sheet_name[:31]
-                            df.to_excel(output, sheet_name=excel_sheet_name, index=False)
-                            
-                        except Exception as e:
-                            st.error(f"处理 {sheet_name} 数据时出错: {e}")
-                            continue
-            
-            output.close()
-            
-            # 读取文件并创建下载按钮
-            with open('temp_multi_project_summary.xlsx', 'rb') as file:
+                            try:
+                                if isinstance(data, list):
+                                    df = pd.DataFrame(data)
+                                elif isinstance(data, dict):
+                                    df = pd.DataFrame([data])
+                                else:
+                                    st.warning(f"跳过 {sheet_name}：数据格式不正确")
+                                    continue
+                                df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+                            except Exception as e:
+                                st.error(f"处理 {sheet_name} 数据时出错: {e}")
+                                continue
+            except Exception as e:
+                st.error(f"生成Excel失败: {e}")
+                output = None
+
+            if output is not None:
+                excel_bytes = output.getvalue()
                 st.download_button(
-                    label="📥 下载多项目汇总数据 (Excel)",
-                    data=file.read(),
-                    file_name=f"多项目汇总数据_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    label="下载多项目汇总数据 (Excel)",
+                    data=excel_bytes,
+                    file_name=f"{export_file_prefix or '多项目汇总数据'}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     help="下载包含多项目汇总数据的Excel表格，包含12个工作表"
                 )
@@ -1129,25 +1133,29 @@ def render_dashboard(all_data, all_main_dfs, all_tertiary_dfs, month, include_se
                 
                 summary_output.close()
                 
-                # 读取文件并创建下载按钮
-                with open('temp_data_summary_tables.xlsx', 'rb') as file:
+                # 直接内存下载
+                import io
+                bio = io.BytesIO()
+                try:
+                    with pd.ExcelWriter(bio, engine='openpyxl') as writer:
+                        for sheet_name, df in summary_tables.items():
+                            if df is not None and not df.empty:
+                                df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+                except Exception as e:
+                    st.error(f"生成数据汇总Excel失败: {e}")
+                    bio = None
+                if bio is not None:
                     st.download_button(
-                        label="📥 下载数据汇总表格 (Excel)",
-                        data=file.read(),
-                        file_name=f"数据汇总表格_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        label="下载数据汇总表格 (Excel)",
+                        data=bio.getvalue(),
+                        file_name=f"{export_file_prefix or '数据汇总表格'}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         help="下载包含多项目4主要费项、4-1主要费项和三级费项月累表格累加数据的Excel表格"
                     )
-                
-                # 清理临时文件
-                if os.path.exists('temp_data_summary_tables.xlsx'):
-                    os.remove('temp_data_summary_tables.xlsx')
             else:
                 st.warning("⚠️ 无法创建数据汇总表格，请检查项目数据")
             
-            # 清理临时文件
-            if os.path.exists('temp_multi_project_summary.xlsx'):
-                os.remove('temp_multi_project_summary.xlsx')
+            # 不再创建或清理临时文件
     else:
         st.info("⚠️ 多项目汇总数据导出功能需要选择多个项目才能使用")
         st.info("💡 请选择多个项目文件进行分析，然后即可导出多项目汇总数据")
@@ -1172,7 +1180,7 @@ def render_exception_ranking(all_data, month):
         return
         
     st.markdown("---")
-    st.subheader("📊 项目异常数量排行榜")
+    st.markdown(f"<h3 style='display: flex; align-items: center; margin: 0;'>{CHART_ICON} 项目异常数量排行榜</h3>", unsafe_allow_html=True)
     
     # 统计每个项目的异常数量
     project_stats = {}
@@ -1362,7 +1370,7 @@ def render_exception_ranking(all_data, month):
     if total_table_data:
         csv_data = total_df.to_csv(index=False, encoding='utf-8-sig')
         st.download_button(
-            label="📥 下载异常排行榜",
+            label="下载异常排行榜",
             data=csv_data,
             file_name=f"项目异常排行榜_{month}月.csv",
             mime="text/csv",

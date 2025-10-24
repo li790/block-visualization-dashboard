@@ -2,6 +2,7 @@ import streamlit as st
 import time
 from utils.cache_manager import get_cache_manager
 
+
 def render_cache_indicator():
     """渲染缓存状态指示器"""
     cache_manager = get_cache_manager()

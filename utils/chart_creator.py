@@ -108,14 +108,23 @@ def create_fee_items_bar_chart(data, month):
     
     for item in data['fee_items']:
         names.append(item['name'])
-        
-        # 获取该费项在指定月份的累计目标金额
-        # 由于fee_items中只有cum_target和cum_actual，这些已经是当前月份的累计值
+        # fee_items 中的累计值已是当前月的累计
         cum_target = item.get('cum_target', 0)
         cum_actual = item.get('cum_actual', 0)
-        
         targets.append(cum_target)
         actuals.append(cum_actual)
+
+    # 大数据量自动Top-N合并“其他”，减少前端渲染压力
+    MAX_BARS = 20
+    if len(names) > MAX_BARS:
+        import numpy as np
+        score = np.array(targets) + np.array(actuals)
+        order = np.argsort(-score)
+        top_idx = order[:MAX_BARS]
+        other_idx = order[MAX_BARS:]
+        names = [names[i] for i in top_idx] + ['其他']
+        targets = [targets[i] for i in top_idx] + [float(np.sum([targets[i] for i in other_idx]))]
+        actuals = [actuals[i] for i in top_idx] + [float(np.sum([actuals[i] for i in other_idx]))]
     
     # 创建柱状图
     fig = go.Figure()
@@ -125,6 +134,7 @@ def create_fee_items_bar_chart(data, month):
         name=f'{month}月累计目标',
         x=names,
         y=targets,
+        customdata=[t/10000.0 for t in targets],
         marker_color='#1f77b4',
         visible=True
     ))
@@ -133,6 +143,7 @@ def create_fee_items_bar_chart(data, month):
         name=f'{month}月累计已发生',
         x=names,
         y=actuals,
+        customdata=[a/10000.0 for a in actuals],
         marker_color='#ff7f0e',
         visible=True
     ))
@@ -166,7 +177,7 @@ def create_fee_items_bar_chart(data, month):
             'xanchor': 'center',
             'font': {'size': 18, 'family': 'Microsoft YaHei'}
         },
-        height=300,
+        height=400,
         plot_bgcolor='white',
         paper_bgcolor='white',
         xaxis=dict(
@@ -201,8 +212,8 @@ def create_fee_items_bar_chart(data, month):
         font=dict(family='Microsoft YaHei')
     )
     
-    # 统一悬浮提示为万元格式
-    fig.update_traces(hovertemplate='<b>%{x}</b><br>%{y:,.0f} 万元<extra></extra>')
+    # 统一悬浮提示为万元格式（使用customdata万为单位）
+    fig.update_traces(selector=dict(type='bar'), hovertemplate='<b>%{x}</b><br>%{customdata:,.0f} 万元<extra></extra>')
     
     return fig
 
@@ -259,6 +270,7 @@ def create_bar_chart(data):
             name='目标累计',
             x=names,
             y=targets,
+            customdata=[t/10000.0 for t in targets],
             marker_color='#1f77b4',
             visible=True
         ))
@@ -267,6 +279,7 @@ def create_bar_chart(data):
             name='已发生累计',
             x=names,
             y=actuals,
+            customdata=[a/10000.0 for a in actuals],
             marker_color='#ff7f0e',
             visible=True
         ))
@@ -327,8 +340,8 @@ def create_bar_chart(data):
             font=dict(family='Microsoft YaHei')
         )
         
-        # 统一悬浮提示为万元格式
-        fig.update_traces(hovertemplate='<b>%{x}</b><br>%{y:,.0f} 万元<extra></extra>')
+        # 统一悬浮提示为万元格式（使用customdata万为单位）
+        fig.update_traces(selector=dict(type='bar'), hovertemplate='<b>%{x}</b><br>%{customdata:,.0f} 万元<extra></extra>')
     else:
         # 处理DataFrame类型数据 (每月费项成本对比 + 月累折线)
         if data.empty:
@@ -341,6 +354,7 @@ def create_bar_chart(data):
             name='目标成本',
             x=data['月份'],
             y=data['目标成本'],
+            customdata=[float(v) for v in (data['目标成本'])],
             marker_color='#1f77b4',
             visible=True
         ))
@@ -349,6 +363,7 @@ def create_bar_chart(data):
             name='已发生成本',
             x=data['月份'],
             y=data['已发生成本'],
+            customdata=[float(v) for v in (data['已发生成本'])],
             marker_color='#ff7f0e',
             visible=True
         ))
@@ -362,6 +377,8 @@ def create_bar_chart(data):
             name='月累已发生成本',
             x=data['月份'],
             y=cum_actual,
+            # 累计序列已是万元单位，避免再次除以10000
+            customdata=[float(v) for v in cum_actual],
             mode='lines+markers',
             line=dict(color='#43a047', width=3),
             marker=dict(size=6, color='#43a047'),
@@ -372,6 +389,8 @@ def create_bar_chart(data):
             name='月累目标成本',
             x=data['月份'],
             y=cum_target,
+            # 累计序列已是万元单位，避免再次除以10000
+            customdata=[float(v) for v in cum_target],
             mode='lines+markers',
             line=dict(color='#e53935', width=3),
             marker=dict(size=6, color='#e53935'),
@@ -453,9 +472,9 @@ def create_bar_chart(data):
             font=dict(family='Microsoft YaHei')
         )
 
-        # 统一悬浮提示为完整数值格式
-        fig.update_traces(selector=dict(type='bar'), hovertemplate='<b>%{x}</b><br>%{y:,.0f} 万元<extra></extra>')
-        fig.update_traces(selector=dict(type='scatter'), hovertemplate='<b>%{x}</b><br>%{y:,.0f} 万元<extra></extra>')
+        # 统一悬浮提示为万元格式：柱用原列(已是万元)，折线使用customdata(万)
+        fig.update_traces(selector=dict(type='bar'), hovertemplate='<b>%{x}</b><br>%{customdata:,.0f} 万元<extra></extra>')
+        fig.update_traces(selector=dict(type='scatter'), hovertemplate='<b>%{x}</b><br>%{customdata:,.0f} 万元<extra></extra>')
     
     return fig
 
@@ -465,11 +484,16 @@ def create_line_chart(data):
     
     fig = go.Figure()
     
+    # 使用万元单位绘图，悬浮同样显示万元
+    target_wan = [float(v) / 10000.0 for v in data['cum_target']]
+    actual_wan = [float(v) / 10000.0 for v in data['cum_actual']]
+    
     # 添加折线图
     fig.add_trace(go.Scatter(
         name='总目标累计',
         x=months,
-        y=data['cum_target'],
+        y=target_wan,
+        customdata=target_wan,
         mode='lines+markers',
         line=dict(color='#1f77b4', width=3),
         marker=dict(size=8, color='#1f77b4'),
@@ -479,23 +503,13 @@ def create_line_chart(data):
     fig.add_trace(go.Scatter(
         name='总已发生成本',
         x=months,
-        y=data['cum_actual'],
+        y=actual_wan,
+        customdata=actual_wan,
         mode='lines+markers',
         line=dict(color='#ff7f0e', width=3),
         marker=dict(size=8, color='#ff7f0e'),
         visible=True
     ))
-    
-    # 自定义Y轴刻度标签 - 统一使用万元单位
-    def format_y_axis_ticks(tick_values):
-        """将数值转换为万元格式"""
-        formatted_ticks = []
-        for value in tick_values:
-            # 统一转换为万元
-            wan_value = value / 10000
-            formatted_value = f"{wan_value:.0f}万元"
-            formatted_ticks.append(formatted_value)
-        return formatted_ticks
     
     fig.update_layout(
         title={
@@ -524,10 +538,7 @@ def create_line_chart(data):
             gridcolor='#f0f0f0',
             zeroline=True,
             zerolinecolor='#f0f0f0',
-            # 自定义刻度标签 - 统一使用万元单位
-            tickmode='array',
-            tickvals=[0, 10000000, 20000000, 30000000, 40000000],  # 0, 1000万, 2000万, 3000万, 4000万
-            ticktext=format_y_axis_ticks([0, 10000000, 20000000, 30000000, 40000000]),  # 0, 1000万元, 2000万元, 3000万元, 4000万元
+            tickformat=',.0f',  # 自动刻度，整数显示（万元）
             tickfont=dict(family='Microsoft YaHei')
         ),
         legend=dict(
@@ -541,8 +552,8 @@ def create_line_chart(data):
         font=dict(family='Microsoft YaHei')
     )
     
-    # 统一悬浮提示为万元格式
-    fig.update_traces(hovertemplate='<b>%{x}月</b><br>%{y:,.0f} 万元<extra></extra>')
+    # 统一悬浮提示为万元格式（使用customdata万为单位）
+    fig.update_traces(hovertemplate='<b>%{x}月</b><br>%{customdata:,.0f} 万元<extra></extra>')
     
     return fig
 
@@ -668,7 +679,7 @@ def create_project_comparison_chart(all_data, month):
             'font': {'size': 18, 'family': 'Microsoft YaHei'}
         },
         xaxis_title="项目",
-        height=400,
+        height=680,
         plot_bgcolor='white',
         paper_bgcolor='white',
         xaxis=dict(

@@ -329,8 +329,8 @@ def render_single_project_analysis(project_name, data, month, show_details=True)
                 line_chart.data[1].visible = False
             
             # 上下排列显示图表 - 总成本累计趋势在上，二级费项累计对比在下
-            st.plotly_chart(line_chart, use_container_width=True, height=400, key=f"line_chart_single_{project_name}")
-            st.plotly_chart(bar_chart, use_container_width=True, height=400, key=f"bar_chart_single_{project_name}")
+            st.plotly_chart(line_chart, use_container_width=True, config={"displayModeBar": True}, key=f"line_chart_single_{project_name}")
+            st.plotly_chart(bar_chart, use_container_width=True, config={"displayModeBar": True}, key=f"bar_chart_single_{project_name}")
         else:
             st.warning("没有找到二级费项数据")
     except Exception as e:
@@ -564,7 +564,7 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
 
     st.markdown(f"<h3 style='display: flex; align-items: center; margin: 0;'> 项目对比分析</h3>", unsafe_allow_html=True)
     # 项目使用率对比图（含月累折线）
-    st.plotly_chart(create_project_comparison_chart(all_data, month), use_container_width=True, key="project_comparison_chart", height=680)
+    st.plotly_chart(create_project_comparison_chart(all_data, month), use_container_width=True, key="project_comparison_chart", config={"displayModeBar": True})
     
     # 详细指标对比表
     st.subheader(" 详细指标对比")
@@ -936,8 +936,8 @@ def render_multi_project_analysis(all_data, all_main_dfs, all_tertiary_dfs, mont
                     line_chart.data[1].visible = False
                 
                 # 上下排列显示图表 - 总成本累计趋势在上，二级费项累计对比在下
-                st.plotly_chart(line_chart, use_container_width=True, height=400, key=f"line_chart_multi_{selected_project}")
-                st.plotly_chart(bar_chart, use_container_width=True, height=400, key=f"bar_chart_multi_{selected_project}")
+                st.plotly_chart(line_chart, use_container_width=True, config={"displayModeBar": True}, key=f"line_chart_multi_{selected_project}")
+                st.plotly_chart(bar_chart, use_container_width=True, config={"displayModeBar": True}, key=f"bar_chart_multi_{selected_project}")
             else:
                 st.warning("没有找到二级费项数据")
         except Exception as e:
